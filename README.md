@@ -1,10 +1,10 @@
 # skillprobe
 
-AI coding tools like Claude Code, Cursor, Copilot etc all inject instructions into the LLM context behind the scenes -- skills, rules, system prompts, whatever you want to call them. Theres no good way to test whether those instructions are actually being followed though. You write a skill that says "never add docstrings" and half the time the model adds them anyway.
+AI coding tools like Claude Code, Cursor, Copilot etc all inject instructions into the LLM context behind the scenes (skills, rules, system prompts, whatever you want to call them). Theres no good way to test whether those instructions are actually being followed though. You write a skill that says "never add docstrings" and half the time the model adds them anyway.
 
 skillprobe is a local proxy that sits between your tool and the LLM API, captures the full request and response, and lets you run assertions against them. It works with subscriptions (Claude Pro, Cursor Pro, etc) since your tool handles authentication normally and skillprobe just observes the traffic going through.
 
-It also has a **harness** that automates the entire flow -- no more manually opening Claude Code, typing prompts, and checking results. One command spins up the proxy, launches `claude -p` or Cursor's `agent -p` as subprocesses, runs your test scenarios, evaluates assertions, and tears everything down. Works like a test suite.
+It also has a **harness** that automates the entire flow so you dont have to manually open Claude Code, type prompts, and check results yourself. One command spins up the proxy, launches `claude -p` or Cursor's `agent -p` as subprocesses, runs your test scenarios, evaluates assertions, and tears everything down.
 
 ## Quick start
 
@@ -60,7 +60,7 @@ Supported assertion types are `contains`, `not_contains`, `regex`, `skill_presen
 
 ## Automated harness testing
 
-Instead of manually running prompts through Claude Code or Cursor, the harness automates the full lifecycle. Write scenario YAML, run one command:
+The proxy workflow is great for observing what happens in real sessions, but it still requires you to manually type prompts and check results. The harness automates all of that. You write scenario YAML describing what to test and it handles the rest:
 
 ```bash
 uv run skillprobe harness tests/my-skill.yaml --harness claude-code --model claude-haiku-4-5-20251001
@@ -84,7 +84,7 @@ Running: tests/my-skill.yaml
 
 ### Scenario format
 
-Scenarios support multi-step conversations, workspace fixtures, setup commands, and post-run assertions:
+Each scenario can have multiple conversational steps, a workspace fixture that gets copied fresh for every run, setup commands that tweak the fixture before the test starts, and post-run assertions that check the state of the workspace after everything finishes:
 
 ```yaml
 harness: claude-code
@@ -116,28 +116,21 @@ scenarios:
             value: "commit"
 ```
 
-The harness supports `contains`, `not_contains`, `regex`, `skill_present`, `skill_loaded`, `tool_called`, `file_exists`, and `file_contains` assertions. Any assertion can be inverted with `negate: true`.
+The harness supports `contains`, `not_contains`, `regex`, `skill_present`, `skill_loaded`, `tool_called`, `file_exists`, and `file_contains` assertions, and any of them can be inverted with `negate: true`.
 
-### Harness support
-
-| Harness | Command | Proxy capture | Behavioral testing |
-|---|---|---|---|
-| Claude Code | `claude -p` | yes (full system prompt, skill detection) | yes |
-| Cursor | `agent -p` | no (Cursor routes through its own API) | yes |
+For Claude Code, the harness runs a local proxy so you get full system prompt visibility and skill detection on top of the behavioral checks. Cursor routes its API calls through its own servers so theres no proxy capture there, but behavioral testing (checking what the model actually said and did) works the same way on both.
 
 ### Generating tests
 
-Point `init` at a skill directory and it uses the LLM to generate a starter test suite:
+You dont have to write scenario YAML from scratch. Point `init` at a skill directory and it reads the SKILL.md, uses the LLM to figure out what should be tested (positive activation, negative activation, behavioral correctness, edge cases), and writes a starter YAML file you can review and tweak:
 
 ```bash
 uv run skillprobe init ./skills/commit --harness claude-code
 ```
 
-This reads the SKILL.md, generates scenarios covering positive activation, negative activation, behavioral correctness, and edge cases, then writes a YAML file you can review and tweak.
-
 ## Optimizing skills
 
-This part borrows from Karpathy's autoresearch idea -- you tag your captures with session names, look at whats failing, apply mutations to the skill, and then compare before/after.
+This part borrows from Karpathy's autoresearch idea. You tag your captures with session names, look at whats failing, apply mutations to the skill, and then compare before and after.
 
 ```bash
 # run with your current skill and tag captures as v1
@@ -168,7 +161,7 @@ There are six mutation operators (add_constraint, add_negative_example, restruct
 
 ## Activation testing
 
-Separate from whether a skill is being followed, theres also the question of whether it gets loaded at the right time. Skills arent always in context -- tools like Claude Code and Cursor load them dynamically based on relevance. If your skill's description or keywords are off, it might not load when it should, or load when it shouldnt.
+Separate from whether a skill is being followed, theres also the question of whether it gets loaded at the right time. Skills arent always in context because tools like Claude Code and Cursor load them dynamically based on relevance. If your skill's description or keywords are off, it might not load when it should, or load when it shouldnt.
 
 Activation tests let you define when a skill should and shouldnt be present:
 
@@ -197,7 +190,7 @@ skillprobe activation tests/test-activation.yaml --last 50
     [!!] "what is recursion" -- expected not loaded, was loaded
 ```
 
-This isnt about testing Claude Code or Cursor's loading logic -- its about making sure your skill file has the right description and content so the tool picks it up when it should.
+This isnt about testing Claude Code or Cursor's loading logic, its about making sure your skill file has the right description and content so the tool picks it up when it should.
 
 ## Commands
 
@@ -205,8 +198,8 @@ This isnt about testing Claude Code or Cursor's loading logic -- its about makin
 - `captures` - list whats been captured
 - `inspect <id>` - look at a specific capture in detail
 - `assert <test.yaml>` - check captures against assertions
-- `harness <test.yaml>` - automated end-to-end skill testing (`--harness`, `--parallel`, `--model`)
-- `init <skill-dir>` - generate test YAML from a skill using LLM
+- `harness <test.yaml>` - run automated end-to-end skill tests (`--harness`, `--parallel`, `--model`)
+- `init <skill-dir>` - generate starter test YAML from a skill
 - `analyze <test.yaml>` - find failure patterns, suggest mutations
 - `optimize <skill.md>` - apply a mutation (backs up the original)
 - `diff <test.yaml>` - compare sessions

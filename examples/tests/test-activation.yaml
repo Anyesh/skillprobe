@@ -1,0 +1,10 @@
+activations:
+  - skill: clean-python
+    should_load_when:
+      - "write a python function"
+      - "refactor this python code"
+      - "create a python module"
+    should_not_load_when:
+      - "hello"
+      - "explain how HTTP works"
+      - "write a react component"

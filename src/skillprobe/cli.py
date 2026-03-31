@@ -419,3 +419,34 @@ def optimize(skill_file: str, mutation: str, test_file: str, db: str, session: s
     apply_mutation(skill_path, target)
     click.echo(f"\nSkill updated. Backup saved as {skill_path.with_suffix('.md.bak')}")
     click.echo(f"Re-test with a new session to compare.")
+
+
+@main.command()
+@click.argument("test_file", type=click.Path(exists=True))
+@click.option("--db", default="skillprobe.db", type=click.Path(), help="Database path")
+@click.option("--session", default=None, help="Check specific session")
+@click.option("--last", default=50, type=int, help="Check last N captures")
+def activation(test_file: str, db: str, session: str | None, last: int):
+    from skillprobe.storage.database import Database
+    from skillprobe.testing.activation import (
+        check_activations,
+        format_activation_results,
+        load_activation_tests,
+    )
+
+    cases = load_activation_tests(Path(test_file))
+    database = Database(Path(db))
+    database.initialize()
+    if session:
+        captures = database.list_captures_by_session(session)
+    else:
+        captures = database.list_captures(limit=last)
+    database.close()
+
+    if not captures:
+        click.echo("No captures to check.")
+        return
+
+    click.echo(f"Checking {len(cases)} skill activations against {len(captures)} captures\n")
+    results = check_activations(cases, captures)
+    click.echo(format_activation_results(results))

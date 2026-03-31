@@ -45,6 +45,111 @@ async def handle_health(request: web.Request) -> web.Response:
     })
 
 
+def _resolve_forward_url(config: ProxyConfig, path: str) -> str:
+    base_path = path.split("?")[0].rstrip("/")
+    for prefix, attr in FORWARDING_MAP.items():
+        if base_path == prefix:
+            return f"{getattr(config, attr)}{path}"
+    return f"{config.anthropic_api_url}{path}"
+
+
+def _detect_provider(path: str) -> str:
+    if "messages" in path:
+        return "anthropic"
+    if "chat" in path:
+        return "openai"
+    return "unknown"
+
+
+def _extract_response_text(response_body: dict | None, provider: str) -> str:
+    if not response_body:
+        return ""
+    if provider == "anthropic":
+        parts = []
+        for block in response_body.get("content", []):
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block["text"])
+        return "\n".join(parts)
+    if provider == "openai":
+        choices = response_body.get("choices", [])
+        if choices:
+            return choices[0].get("message", {}).get("content", "")
+    return ""
+
+
+def _reassemble_sse_response(chunks: list[bytes], provider: str) -> dict | None:
+    text_parts = []
+    tool_use_blocks = []
+    model = None
+    stop_reason = None
+    usage = None
+
+    for chunk in chunks:
+        for line in chunk.decode("utf-8", errors="replace").split("\n"):
+            if not line.startswith("data: "):
+                continue
+            data_str = line[6:].strip()
+            if data_str == "[DONE]":
+                continue
+            try:
+                event = json.loads(data_str)
+            except json.JSONDecodeError:
+                continue
+
+            if provider == "anthropic":
+                etype = event.get("type", "")
+                if etype == "message_start":
+                    msg = event.get("message", {})
+                    model = msg.get("model")
+                    usage = msg.get("usage")
+                elif etype == "content_block_delta":
+                    delta = event.get("delta", {})
+                    if delta.get("type") == "text_delta":
+                        text_parts.append(delta.get("text", ""))
+                    elif delta.get("type") == "input_json_delta":
+                        pass
+                elif etype == "content_block_start":
+                    block = event.get("content_block", {})
+                    if block.get("type") == "tool_use":
+                        tool_use_blocks.append(block)
+                elif etype == "message_delta":
+                    delta = event.get("delta", {})
+                    stop_reason = delta.get("stop_reason", stop_reason)
+                    if event.get("usage"):
+                        usage = {**(usage or {}), **event["usage"]}
+            elif provider == "openai":
+                choices = event.get("choices", [])
+                if choices:
+                    delta = choices[0].get("delta", {})
+                    if "content" in delta and delta["content"]:
+                        text_parts.append(delta["content"])
+                    if choices[0].get("finish_reason"):
+                        stop_reason = choices[0]["finish_reason"]
+                if event.get("model"):
+                    model = event["model"]
+
+    if not text_parts and not tool_use_blocks:
+        return None
+
+    if provider == "anthropic":
+        content = []
+        if text_parts:
+            content.append({"type": "text", "text": "".join(text_parts)})
+        for tb in tool_use_blocks:
+            content.append(tb)
+        result = {"content": content, "stop_reason": stop_reason}
+        if model:
+            result["model"] = model
+        if usage:
+            result["usage"] = usage
+        return result
+
+    return {
+        "choices": [{"message": {"content": "".join(text_parts)}}],
+        "model": model,
+    }
+
+
 async def handle_proxy(request: web.Request) -> web.Response:
     config: ProxyConfig = request.app["config"]
     db: Database = request.app["db"]
@@ -59,39 +164,86 @@ async def handle_proxy(request: web.Request) -> web.Response:
         except json.JSONDecodeError:
             pass
 
-    base_path = path.split("?")[0].rstrip("/")
-    target_attr = None
-    for prefix, attr in FORWARDING_MAP.items():
-        if base_path == prefix:
-            target_attr = attr
-            break
-
-    if target_attr is None:
-        target_url_base = config.anthropic_api_url
-    else:
-        target_url_base = getattr(config, target_attr)
-
-    forward_url = f"{target_url_base}{path}"
-    headers = {
-        k: v for k, v in request.headers.items()
-        if k.lower() not in HOP_BY_HOP
-    }
-
-    provider = "anthropic" if "messages" in path else "openai" if "chat" in path else "unknown"
+    forward_url = _resolve_forward_url(config, path)
+    headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP_BY_HOP}
+    provider = _detect_provider(path)
+    is_stream = body.get("stream", False)
 
     model = body.get("model", "?")
     num_messages = len(body.get("messages", []))
     num_tools = len(body.get("tools", []))
-    log.info("[%s] %s %s model=%s messages=%d tools=%d", provider, request.method, path, model, num_messages, num_tools)
+    log.info("[%s] %s %s model=%s messages=%d tools=%d stream=%s", provider, request.method, path, model, num_messages, num_tools, is_stream)
 
     start_time = time.monotonic()
+
+    if is_stream:
+        return await _handle_streaming(request, client, db, forward_url, headers, raw_body, body, path, provider, start_time)
+    return await _handle_buffered(request, client, db, forward_url, headers, raw_body, body, path, provider, start_time)
+
+
+async def _handle_streaming(request, client, db, forward_url, headers, raw_body, body, path, provider, start_time):
     try:
-        resp = await client.request(
+        async with client.stream(request.method, forward_url, content=raw_body, headers=headers) as resp:
+            response_headers = {
+                k: v for k, v in resp.headers.items()
+                if k.lower() not in HOP_BY_HOP | {"content-encoding", "content-length"}
+            }
+            stream_response = web.StreamResponse(status=resp.status_code, headers=response_headers)
+            await stream_response.prepare(request)
+
+            collected_chunks: list[bytes] = []
+            async for chunk in resp.aiter_bytes():
+                collected_chunks.append(chunk)
+                await stream_response.write(chunk)
+
+            await stream_response.write_eof()
+            duration_ms = (time.monotonic() - start_time) * 1000
+
+            response_body = _reassemble_sse_response(collected_chunks, provider)
+            parsed = parse_request(path, body)
+            system_chars = len(parsed.system_prompt) if parsed else 0
+            sections = len(parsed.system_sections) if parsed else 0
+            response_text = _extract_response_text(response_body, provider)
+
+            capture = Capture(
+                timestamp=datetime.now(timezone.utc),
+                provider=provider,
+                method=request.method,
+                path=path,
+                request_body=body,
+                response_body=response_body,
+                response_status=resp.status_code,
+                status=CaptureStatus.COMPLETED,
+                parsed_data=None,
+                duration_ms=duration_ms,
+            )
+            capture_id = db.save_capture(capture)
+
+            log.info(
+                "  -> %d (%dms) capture=#%d system=%d chars, %d sections, response=%d chars",
+                resp.status_code, duration_ms, capture_id, system_chars, sections, len(response_text),
+            )
+            return stream_response
+    except httpx.HTTPError as e:
+        duration_ms = (time.monotonic() - start_time) * 1000
+        log.error("  -> FAILED (%dms): %s", duration_ms, e)
+        capture = Capture(
+            timestamp=datetime.now(timezone.utc),
+            provider=provider,
             method=request.method,
-            url=forward_url,
-            content=raw_body,
-            headers=headers,
+            path=path,
+            request_body=body,
+            status=CaptureStatus.FAILED,
+            parsed_data=None,
+            duration_ms=duration_ms,
         )
+        db.save_capture(capture)
+        return web.json_response({"error": str(e)}, status=502)
+
+
+async def _handle_buffered(request, client, db, forward_url, headers, raw_body, body, path, provider, start_time):
+    try:
+        resp = await client.request(method=request.method, url=forward_url, content=raw_body, headers=headers)
         duration_ms = (time.monotonic() - start_time) * 1000
 
         response_body = None
@@ -103,7 +255,7 @@ async def handle_proxy(request: web.Request) -> web.Response:
         parsed = parse_request(path, body)
         system_chars = len(parsed.system_prompt) if parsed else 0
         sections = len(parsed.system_sections) if parsed else 0
-        tool_names = ", ".join(t.name for t in parsed.tools[:5]) if parsed else ""
+        response_text = _extract_response_text(response_body, provider)
 
         capture = Capture(
             timestamp=datetime.now(timezone.utc),
@@ -120,19 +272,15 @@ async def handle_proxy(request: web.Request) -> web.Response:
         capture_id = db.save_capture(capture)
 
         log.info(
-            "  -> %d (%dms) capture=#%d system=%d chars, %d sections, tools=[%s]",
-            resp.status_code, duration_ms, capture_id, system_chars, sections, tool_names,
+            "  -> %d (%dms) capture=#%d system=%d chars, %d sections, response=%d chars",
+            resp.status_code, duration_ms, capture_id, system_chars, sections, len(response_text),
         )
 
         response_headers = {
             k: v for k, v in resp.headers.items()
             if k.lower() not in HOP_BY_HOP | {"content-encoding", "content-length"}
         }
-        return web.Response(
-            status=resp.status_code,
-            body=resp.content,
-            headers=response_headers,
-        )
+        return web.Response(status=resp.status_code, body=resp.content, headers=response_headers)
     except httpx.HTTPError as e:
         duration_ms = (time.monotonic() - start_time) * 1000
         log.error("  -> FAILED (%dms): %s", duration_ms, e)

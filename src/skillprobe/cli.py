@@ -144,6 +144,62 @@ def run_tests(test_file: str, model: str | None, provider: str | None, anthropic
     raise SystemExit(1 if any_failed else 0)
 
 
+@main.command("assert")
+@click.argument("test_file", type=click.Path(exists=True))
+@click.option("--db", default="skillprobe.db", type=click.Path(), help="Database path")
+@click.option("--last", default=20, type=int, help="Check last N captures")
+def assert_captures(test_file: str, db: str, last: int):
+    from skillprobe.parsers import parse_request
+    from skillprobe.proxy.handler import _extract_response_text
+    from skillprobe.storage.database import Database
+    from skillprobe.testing.assertions import check_assertion
+    from skillprobe.testing.loader import load_test_suite
+
+    suite = load_test_suite(Path(test_file))
+    database = Database(Path(db))
+    database.initialize()
+    captures = database.list_captures(limit=last)
+    database.close()
+
+    if not captures:
+        click.echo("No captures to check.")
+        return
+
+    captures_with_response = [c for c in captures if c.response_body]
+    if not captures_with_response:
+        click.echo(f"Found {len(captures)} captures but none have response bodies.")
+        click.echo("Make sure streaming support is enabled (restart proxy).")
+        return
+
+    click.echo(f"Checking {len(captures_with_response)} captures against {len(suite.tests)} test cases\n")
+
+    for tc in suite.tests:
+        passed = 0
+        total = len(captures_with_response)
+        failures = []
+        for c in captures_with_response:
+            parsed = parse_request(c.path, c.request_body)
+            system_prompt = parsed.system_prompt if parsed else ""
+            provider = parsed.provider if parsed else c.provider
+            response_text = _extract_response_text(c.response_body, provider)
+            if not response_text:
+                total -= 1
+                continue
+            results = [check_assertion(a, response_text, system_prompt) for a in tc.assertions]
+            if all(r.passed for r in results):
+                passed += 1
+            else:
+                failed = [r for r in results if not r.passed]
+                failures.append((c.id, failed))
+
+        rate = passed / total if total > 0 else 0
+        icon = "PASS" if rate == 1.0 else "FAIL" if rate == 0.0 else "PARTIAL"
+        click.echo(f"  [{icon}] {tc.name} ({passed}/{total}, {rate:.0%})")
+        for cap_id, failed_asserts in failures[:3]:
+            for a in failed_asserts:
+                click.echo(f"         capture #{cap_id}: {a.details}")
+
+
 @main.command()
 @click.option("--db", default="skillprobe.db", type=click.Path(), help="Database path")
 @click.option("--skills", multiple=True, type=click.Path(exists=True), help="Skill directories")

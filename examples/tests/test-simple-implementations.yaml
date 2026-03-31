@@ -1,0 +1,53 @@
+skill: ./skills/simple-implementations.md
+
+tests:
+  - name: avoids premature abstractions
+    when:
+      - type: regex
+        value: "(class|def) \\w*(Processor|Helper|Manager|Factory|Builder)"
+    assert:
+      - type: not_contains
+        value: "def process"
+      - type: not_contains
+        value: "def apply"
+
+  - name: direct validation without abstraction
+    when:
+      - type: regex
+        value: "(validate|check)_\\w+"
+    assert:
+      - type: contains
+        value: "if "
+      - type: not_contains
+        value: "Schema"
+      - type: not_contains
+        value: "Rule"
+
+  - name: avoids configuration classes for single use
+    when:
+      - type: regex
+        value: "class Config"
+    assert:
+      - type: contains
+        value: "# NOT for single use cases"
+
+  - name: keeps code readable over DRY
+    when:
+      - type: regex
+        value: "def \\w+\\([^)]*\\):"
+    assert:
+      - type: not_contains
+        value: "getattr.*\\*\\*"
+      - type: not_contains
+        value: "setattr.*loop"
+
+activations:
+  - skill: simple-implementations
+    should_load_when:
+      - "write a simple api endpoint"
+      - "create a validation function"
+      - "build a helper utility"
+    should_not_load_when:
+      - "design a database schema"
+      - "architect a microservice"
+      - "explain design patterns"

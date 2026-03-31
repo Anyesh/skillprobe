@@ -14,7 +14,7 @@ uv sync
 
 ```bash
 # start the proxy
-skillprobe start --watch tests/my-skill.yaml
+uv run skillprobe start --watch tests/my-skill.yaml
 
 # in another terminal, point your tool at it
 ANTHROPIC_BASE_URL=http://localhost:9339 claude "write a prime checker"
@@ -62,21 +62,21 @@ This part borrows from Karpathy's autoresearch idea -- you tag your captures wit
 
 ```bash
 # run with your current skill and tag captures as v1
-skillprobe start --session v1 --watch tests/my-skill.yaml
+skillprobe start --session v1 --watch skill-tests/my-skill.yaml
 # ... use your tool for a bit ...
 
 # see whats failing and get suggestions
-skillprobe analyze tests/my-skill.yaml --session v1
+skillprobe analyze skill-tests/my-skill.yaml --session v1
 
 # apply one of the suggested mutations
-skillprobe optimize skills/clean-python.md --mutation add_constraint --test tests/my-skill.yaml
+skillprobe optimize skills/clean-python.md --mutation add_constraint --test skill-tests/my-skill.yaml
 
 # run again with the updated skill, tag as v2
-skillprobe start --session v2 --watch tests/my-skill.yaml
+skillprobe start --session v2 --watch skill-tests/my-skill.yaml
 # ... use your tool again ...
 
 # see what changed
-skillprobe diff tests/my-skill.yaml --session v1 --session v2
+skillprobe diff skill-tests/my-skill.yaml --session v1 --session v2
 ```
 
 ```

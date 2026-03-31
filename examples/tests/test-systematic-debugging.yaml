@@ -1,0 +1,41 @@
+skill: ./skills/systematic-debugging.md
+
+tests:
+  - name: read error message first
+    when:
+      - type: regex
+        value: "(error|failed|unexpected)"
+    assert:
+      - type: contains
+        value: "error"
+
+  - name: traces execution with logging
+    when:
+      - type: regex
+        value: "(test|fail|bug)"
+    assert:
+      - type: contains
+        value: "print\\(|logger\\.|console\\.log"
+
+  - name: verifies assumptions
+    when:
+      - type: regex
+        value: "(debug|trace)"
+    assert:
+      - type: contains
+        value: "assert "
+
+activations:
+  - skill: systematic-debugging
+    should_load_when:
+      - "test is failing"
+      - "this function returns the wrong value"
+      - "why is this throwing an error"
+      - "help me debug this"
+      - "find the bug"
+    should_not_load_when:
+      - "write a web server"
+      - "refactor this code"
+      - "explain how databases work"
+      - "how do I use this library"
+      - "code review"

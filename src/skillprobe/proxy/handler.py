@@ -1,4 +1,5 @@
 import json
+import logging
 import time
 from datetime import datetime, timezone
 
@@ -6,8 +7,11 @@ import httpx
 from aiohttp import web
 
 from skillprobe.config import ProxyConfig
+from skillprobe.parsers import parse_request
 from skillprobe.storage.database import Database
 from skillprobe.storage.models import Capture, CaptureStatus
+
+log = logging.getLogger("skillprobe.proxy")
 
 FORWARDING_MAP = {
     "/v1/messages": "anthropic_api_url",
@@ -75,6 +79,11 @@ async def handle_proxy(request: web.Request) -> web.Response:
 
     provider = "anthropic" if "messages" in path else "openai" if "chat" in path else "unknown"
 
+    model = body.get("model", "?")
+    num_messages = len(body.get("messages", []))
+    num_tools = len(body.get("tools", []))
+    log.info("[%s] %s %s model=%s messages=%d tools=%d", provider, request.method, path, model, num_messages, num_tools)
+
     start_time = time.monotonic()
     try:
         resp = await client.request(
@@ -91,6 +100,11 @@ async def handle_proxy(request: web.Request) -> web.Response:
         except (json.JSONDecodeError, ValueError):
             pass
 
+        parsed = parse_request(path, body)
+        system_chars = len(parsed.system_prompt) if parsed else 0
+        sections = len(parsed.system_sections) if parsed else 0
+        tool_names = ", ".join(t.name for t in parsed.tools[:5]) if parsed else ""
+
         capture = Capture(
             timestamp=datetime.now(timezone.utc),
             provider=provider,
@@ -103,7 +117,12 @@ async def handle_proxy(request: web.Request) -> web.Response:
             parsed_data=None,
             duration_ms=duration_ms,
         )
-        db.save_capture(capture)
+        capture_id = db.save_capture(capture)
+
+        log.info(
+            "  -> %d (%dms) capture=#%d system=%d chars, %d sections, tools=[%s]",
+            resp.status_code, duration_ms, capture_id, system_chars, sections, tool_names,
+        )
 
         response_headers = {
             k: v for k, v in resp.headers.items()
@@ -116,6 +135,7 @@ async def handle_proxy(request: web.Request) -> web.Response:
         )
     except httpx.HTTPError as e:
         duration_ms = (time.monotonic() - start_time) * 1000
+        log.error("  -> FAILED (%dms): %s", duration_ms, e)
         capture = Capture(
             timestamp=datetime.now(timezone.utc),
             provider=provider,

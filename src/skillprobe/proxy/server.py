@@ -1,3 +1,5 @@
+import logging
+
 from aiohttp import web
 
 from skillprobe.config import ProxyConfig
@@ -6,6 +8,14 @@ from skillprobe.storage.database import Database
 
 
 def run_proxy(config: ProxyConfig):
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    logging.getLogger("aiohttp").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
     db = Database(config.db_path)
     db.initialize()
     app = create_app(config, db)
@@ -17,6 +27,7 @@ def run_proxy(config: ProxyConfig):
     print("Connect your tools:")
     print(f"  ANTHROPIC_BASE_URL=http://{config.host}:{config.port} claude <prompt>")
     print(f"  OPENAI_BASE_URL=http://{config.host}:{config.port} <tool>")
+    print()
     try:
         web.run_app(app, host=config.host, port=config.port, print=None)
     finally:

@@ -9,7 +9,6 @@ GENERATION_PROMPT = """You are a test generation expert. Given a skill definitio
 The YAML format:
 ```yaml
 harness: {harness}
-model: claude-sonnet-4-6
 timeout: 120
 skill: {skill_path}
 
@@ -51,9 +50,12 @@ async def generate_test_scaffold(
     skill_path: Path,
     harness: str,
     model: str,
-    api_key: str,
     output_path: Path,
     fixtures_dir: Path,
+    provider: str = "anthropic",
+    anthropic_api_key: str = "",
+    openai_api_key: str = "",
+    base_url: str | None = None,
 ) -> str:
     skill_md = _find_skill_md(skill_path)
     if not skill_md:
@@ -66,28 +68,10 @@ async def generate_test_scaffold(
         skill_content=skill_content,
     )
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(
-            "https://api.anthropic.com/v1/messages",
-            json={
-                "model": model,
-                "max_tokens": 4096,
-                "system": "You generate YAML test suites. Output only valid YAML.",
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        yaml_text = "\n".join(
-            block["text"]
-            for block in data.get("content", [])
-            if block.get("type") == "text"
-        )
+    if provider == "openai":
+        yaml_text = await _call_openai(prompt, model, openai_api_key, base_url)
+    else:
+        yaml_text = await _call_anthropic(prompt, model, anthropic_api_key, base_url)
 
     yaml_text = yaml_text.strip()
     if yaml_text.startswith("```"):
@@ -120,6 +104,61 @@ async def generate_test_scaffold(
     lines.append("")
     lines.append("Review and adjust before running.")
     return "\n".join(lines)
+
+
+async def _call_anthropic(
+    prompt: str, model: str, api_key: str, base_url: str | None
+) -> str:
+    url = f"{base_url or 'https://api.anthropic.com'}/v1/messages"
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(
+            url,
+            json={
+                "model": model,
+                "max_tokens": 4096,
+                "system": "You generate YAML test suites. Output only valid YAML.",
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return "\n".join(
+            block["text"]
+            for block in data.get("content", [])
+            if block.get("type") == "text"
+        )
+
+
+async def _call_openai(
+    prompt: str, model: str, api_key: str, base_url: str | None
+) -> str:
+    url = f"{base_url or 'https://api.openai.com'}/v1/chat/completions"
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(
+            url,
+            json={
+                "model": model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You generate YAML test suites. Output only valid YAML.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+            },
+            headers={
+                "authorization": f"Bearer {api_key}",
+                "content-type": "application/json",
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]
 
 
 def _find_skill_md(skill_path: Path) -> Path | None:

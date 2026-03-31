@@ -607,10 +607,20 @@ def harness(
 @click.argument("skill_dir", type=click.Path(exists=True))
 @click.option("--harness", "harness_name", default="claude-code", help="Target harness")
 @click.option("--output", default=None, type=click.Path(), help="Output YAML path")
-@click.option("--model", default="claude-sonnet-4-6", help="Model for generation")
+@click.option(
+    "--provider",
+    default="anthropic",
+    type=click.Choice(["anthropic", "openai"]),
+    help="LLM provider for generation",
+)
+@click.option("--model", default=None, help="Model for generation")
 @click.option(
     "--anthropic-key", envvar="ANTHROPIC_API_KEY", default="", help="Anthropic API key"
 )
+@click.option(
+    "--openai-key", envvar="OPENAI_API_KEY", default="", help="OpenAI API key"
+)
+@click.option("--base-url", default=None, help="Custom API base URL")
 @click.option(
     "--fixtures-dir",
     default="fixtures",
@@ -621,8 +631,11 @@ def init_tests(
     skill_dir: str,
     harness_name: str,
     output: str | None,
-    model: str,
+    provider: str,
+    model: str | None,
     anthropic_key: str,
+    openai_key: str,
+    base_url: str | None,
     fixtures_dir: str,
 ):
     import asyncio
@@ -632,8 +645,12 @@ def init_tests(
     skill_path = Path(skill_dir)
     output_path = Path(output) if output else Path(f"tests/{skill_path.name}.yaml")
 
+    if model is None:
+        model = "claude-sonnet-4-6" if provider == "anthropic" else "gpt-4o"
+
     click.echo(f"Generating tests for: {skill_path}")
     click.echo(f"  Harness: {harness_name}")
+    click.echo(f"  Provider: {provider}")
     click.echo(f"  Model: {model}")
     click.echo()
 
@@ -642,9 +659,12 @@ def init_tests(
             skill_path=skill_path,
             harness=harness_name,
             model=model,
-            api_key=anthropic_key,
             output_path=output_path,
             fixtures_dir=Path(fixtures_dir),
+            provider=provider,
+            anthropic_api_key=anthropic_key,
+            openai_api_key=openai_key,
+            base_url=base_url,
         )
     )
 

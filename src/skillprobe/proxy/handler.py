@@ -29,6 +29,12 @@ def create_app(config: ProxyConfig, db: Database) -> web.Application:
     if config.skill_dirs:
         from skillprobe.analysis.skill_detector import SkillDetector
         app["skill_detector"] = SkillDetector(config.skill_dirs)
+    if config.watch_test_file:
+        from skillprobe.testing.loader import load_test_suite
+        from skillprobe.proxy.live_assertions import LiveAssertionEvaluator
+        suite = load_test_suite(config.watch_test_file)
+        app["live_evaluator"] = LiveAssertionEvaluator(suite)
+    app["sse_queues"] = []
     app.router.add_get("/health", handle_health)
     app.router.add_route("*", "/{path:.*}", handle_proxy)
     app.on_cleanup.append(cleanup)
@@ -235,6 +241,9 @@ async def _handle_streaming(request, client, db, forward_url, headers, raw_body,
             if detected_skills:
                 skill_names = ", ".join(f"{s['name']}({s['score']:.0%})" for s in detected_skills)
                 log.info("  skills: [%s]", skill_names)
+            if "live_evaluator" in request.app:
+                evaluator = request.app["live_evaluator"]
+                evaluator.evaluate(capture_id, response_text, parsed.system_prompt if parsed else "", capture.parsed_data)
             return stream_response
     except httpx.HTTPError as e:
         duration_ms = (time.monotonic() - start_time) * 1000
@@ -296,6 +305,9 @@ async def _handle_buffered(request, client, db, forward_url, headers, raw_body, 
         if detected_skills:
             skill_names = ", ".join(f"{s['name']}({s['score']:.0%})" for s in detected_skills)
             log.info("  skills: [%s]", skill_names)
+        if "live_evaluator" in request.app:
+            evaluator = request.app["live_evaluator"]
+            evaluator.evaluate(capture_id, response_text, parsed.system_prompt if parsed else "", capture.parsed_data)
 
         response_headers = {
             k: v for k, v in resp.headers.items()

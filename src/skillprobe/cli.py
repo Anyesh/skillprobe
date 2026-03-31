@@ -16,7 +16,8 @@ def main():
 @click.option("--port", default=9339, type=int, help="Proxy listen port")
 @click.option("--db", default="skillprobe.db", type=click.Path(), help="Database path")
 @click.option("--skills", multiple=True, type=click.Path(exists=True), help="Skill directories to monitor")
-def start(host: str, port: int, db: str, skills: tuple[str, ...]):
+@click.option("--watch", default=None, type=click.Path(exists=True), help="Test YAML file for live assertion checking")
+def start(host: str, port: int, db: str, skills: tuple[str, ...], watch: str | None):
     from skillprobe.proxy.server import run_proxy
 
     config = ProxyConfig(
@@ -24,6 +25,7 @@ def start(host: str, port: int, db: str, skills: tuple[str, ...]):
         port=port,
         db_path=Path(db),
         skill_dirs=[Path(s) for s in skills],
+        watch_test_file=Path(watch) if watch else None,
     )
     run_proxy(config)
 

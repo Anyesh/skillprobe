@@ -11,3 +11,4 @@ class ProxyConfig:
     db_path: Path = field(default_factory=lambda: Path("skillprobe.db"))
     skill_dirs: list[Path] = field(default_factory=list)
     capture_responses: bool = True
+    watch_test_file: Path | None = None

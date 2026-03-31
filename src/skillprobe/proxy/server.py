@@ -23,6 +23,8 @@ def run_proxy(config: ProxyConfig):
     print(f"Forwarding Anthropic -> {config.anthropic_api_url}")
     print(f"Forwarding OpenAI   -> {config.openai_api_url}")
     print(f"Database: {config.db_path}")
+    if config.watch_test_file:
+        print(f"Watching: {config.watch_test_file}")
     print()
     print("Connect your tools:")
     print(f"  ANTHROPIC_BASE_URL=http://{config.host}:{config.port} claude <prompt>")

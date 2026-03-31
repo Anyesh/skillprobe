@@ -13,8 +13,11 @@ class CursorAdapter:
     def start(self, config: HarnessConfig) -> None:
         self._config = config
 
-    async def send_prompt(self, prompt: str, workspace: Path, session_id: str | None) -> StepEvidence:
+    async def send_prompt(
+        self, prompt: str, workspace: Path, session_id: str | None
+    ) -> StepEvidence:
         args = self._build_args(prompt, workspace, session_id)
+        timeout = self._config.timeout if self._config else 120
 
         proc = await asyncio.create_subprocess_exec(
             *args,
@@ -22,28 +25,54 @@ class CursorAdapter:
             stderr=asyncio.subprocess.PIPE,
             cwd=workspace,
         )
-        stdout_bytes, _ = await proc.communicate()
+        try:
+            stdout_bytes, _ = await asyncio.wait_for(
+                proc.communicate(), timeout=timeout
+            )
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            proc.kill()
+            await proc.wait()
+            return StepEvidence(
+                response_text="",
+                tool_calls=[],
+                session_id=None,
+                duration_ms=timeout * 1000,
+                cost_usd=None,
+                exit_code=-1,
+                is_error=True,
+                raw_output=f"Process timed out after {timeout}s",
+                capture_id=None,
+            )
         raw_output = stdout_bytes.decode("utf-8", errors="replace")
 
         return self._parse_stream_output(raw_output, proc.returncode)
 
     def supported_assertions(self) -> set[str]:
         return {
-            "contains", "not_contains", "regex",
-            "tool_called", "file_exists", "file_contains",
+            "contains",
+            "not_contains",
+            "regex",
+            "tool_called",
+            "file_exists",
+            "file_contains",
         }
 
     def stop(self) -> None:
         pass
 
-    def _build_args(self, prompt: str, workspace: Path, session_id: str | None) -> list[str]:
+    def _build_args(
+        self, prompt: str, workspace: Path, session_id: str | None
+    ) -> list[str]:
         args = [
             "agent",
-            "-p", prompt,
-            "--output-format", "stream-json",
+            "-p",
+            prompt,
+            "--output-format",
+            "stream-json",
             "--trust",
             "--force",
-            "--workspace", str(workspace),
+            "--workspace",
+            str(workspace),
         ]
         if self._config and self._config.model:
             args.extend(["--model", self._config.model])
@@ -79,14 +108,19 @@ class CursorAdapter:
 
             elif etype == "tool_call":
                 if event.get("subtype") == "started":
-                    tool_calls.append(ToolCallEvent(
-                        tool_name=event.get("tool", "unknown"),
-                        status="started",
-                        arguments=event.get("arguments"),
-                    ))
+                    tool_calls.append(
+                        ToolCallEvent(
+                            tool_name=event.get("tool", "unknown"),
+                            status="started",
+                            arguments=event.get("arguments"),
+                        )
+                    )
                 elif event.get("subtype") == "completed":
                     for tc in reversed(tool_calls):
-                        if tc.tool_name == event.get("tool", "") and tc.status == "started":
+                        if (
+                            tc.tool_name == event.get("tool", "")
+                            and tc.status == "started"
+                        ):
                             tc.status = "completed"
                             break
 

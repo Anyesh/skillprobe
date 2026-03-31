@@ -35,17 +35,25 @@ class WorkspaceManager:
 
         return workspace
 
-    def run_setup(self, workspace: Path, setup_commands: list[dict[str, Any]]) -> None:
+    def run_setup(
+        self, workspace: Path, setup_commands: list[dict[str, Any]], timeout: int = 30
+    ) -> None:
         for cmd in setup_commands:
             run_str = cmd.get("run", "")
             if not run_str:
                 continue
-            result = subprocess.run(
-                ["sh", "-c", run_str],
-                cwd=workspace,
-                capture_output=True,
-                text=True,
-            )
+            try:
+                result = subprocess.run(
+                    ["sh", "-c", run_str],
+                    cwd=workspace,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                )
+            except subprocess.TimeoutExpired:
+                raise RuntimeError(
+                    f"Setup command timed out after {timeout}s: {run_str}"
+                )
             if result.returncode != 0:
                 raise RuntimeError(
                     f"Setup command failed: {run_str}\n"

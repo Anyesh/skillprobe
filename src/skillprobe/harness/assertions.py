@@ -58,7 +58,10 @@ def _check_not_contains(value: str, evidence: StepEvidence) -> HarnessAssertionR
 
 
 def _check_regex(value: str, evidence: StepEvidence) -> HarnessAssertionResult:
-    match = re.search(value, evidence.response_text)
+    try:
+        match = re.search(value, evidence.response_text)
+    except re.error as e:
+        return HarnessAssertionResult("regex", False, f"Invalid regex '{value}': {e}")
     passed = match is not None
     details = f"Pattern '{value}' {'matched' if passed else 'did not match'}"
     return HarnessAssertionResult("regex", passed, details)
@@ -75,7 +78,12 @@ def _check_file_exists(
 ) -> HarnessAssertionResult:
     if workspace is None:
         return HarnessAssertionResult("file_exists", False, "No workspace provided")
-    exists = (workspace / value).exists()
+    target = (workspace / value).resolve()
+    if not str(target).startswith(str(workspace.resolve())):
+        return HarnessAssertionResult(
+            "file_exists", False, f"Path '{value}' escapes workspace"
+        )
+    exists = target.exists()
     details = f"'{value}' {'exists' if exists else 'not found'} in workspace"
     return HarnessAssertionResult("file_exists", exists, details)
 
@@ -91,7 +99,11 @@ def _check_file_contains(
             "file_contains", False, f"Invalid format: {value} (expected path:content)"
         )
     file_path, content = parts
-    target = workspace / file_path
+    target = (workspace / file_path).resolve()
+    if not str(target).startswith(str(workspace.resolve())):
+        return HarnessAssertionResult(
+            "file_contains", False, f"Path '{file_path}' escapes workspace"
+        )
     if not target.exists():
         return HarnessAssertionResult(
             "file_contains", False, f"File '{file_path}' not found"

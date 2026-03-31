@@ -551,8 +551,6 @@ def activation(test_file: str, db: str, session: str | None, last: int):
     "--max-cost", default=None, type=float, help="Max USD spend (Claude Code only)"
 )
 @click.option("--proxy-port", default=9339, type=int, help="Proxy port for Claude Code")
-@click.option("--fail-fast", is_flag=True, help="Stop on first scenario failure")
-@click.option("--verbose", is_flag=True, help="Show raw CLI output per step")
 def harness(
     test_file: str,
     harness_name: str | None,
@@ -561,8 +559,6 @@ def harness(
     timeout: int | None,
     max_cost: float | None,
     proxy_port: int,
-    fail_fast: bool,
-    verbose: bool,
 ):
     import asyncio
 

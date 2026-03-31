@@ -3,11 +3,13 @@ import atexit
 import json
 import logging
 import os
-import signal
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
+
+import httpx
 
 from skillprobe.harness.adapters.base import HarnessConfig
 from skillprobe.harness.evidence import StepEvidence, ToolCallEvent
@@ -20,6 +22,7 @@ class ClaudeCodeAdapter:
         self._config: HarnessConfig | None = None
         self._proxy_proc: subprocess.Popen | None = None
         self._db_path: Path | None = None
+        self._atexit_registered: bool = False
 
     def start(self, config: HarnessConfig) -> None:
         self._config = config
@@ -30,6 +33,7 @@ class ClaudeCodeAdapter:
     ) -> StepEvidence:
         args = self._build_args(prompt, workspace, session_id)
         env = self._build_env()
+        timeout = self._config.timeout if self._config else 120
 
         proc = await asyncio.create_subprocess_exec(
             *args,
@@ -38,7 +42,24 @@ class ClaudeCodeAdapter:
             cwd=workspace,
             env=env,
         )
-        stdout_bytes, _ = await proc.communicate()
+        try:
+            stdout_bytes, _ = await asyncio.wait_for(
+                proc.communicate(), timeout=timeout
+            )
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            proc.kill()
+            await proc.wait()
+            return StepEvidence(
+                response_text="",
+                tool_calls=[],
+                session_id=None,
+                duration_ms=timeout * 1000,
+                cost_usd=None,
+                exit_code=-1,
+                is_error=True,
+                raw_output=f"Process timed out after {timeout}s",
+                capture_id=None,
+            )
         raw_output = stdout_bytes.decode("utf-8", errors="replace")
 
         return self._parse_json_output(raw_output, proc.returncode)
@@ -60,7 +81,9 @@ class ClaudeCodeAdapter:
 
     def _start_proxy(self) -> None:
         port = self._config.proxy_port if self._config else 9339
-        self._db_path = Path(f".skillprobe-harness-{port}.db")
+        fd, db_file = tempfile.mkstemp(suffix=".db", prefix="skillprobe-harness-")
+        os.close(fd)
+        self._db_path = Path(db_file)
 
         self._proxy_proc = subprocess.Popen(
             [
@@ -75,7 +98,9 @@ class ClaudeCodeAdapter:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        atexit.register(self._stop_proxy)
+        if not self._atexit_registered:
+            atexit.register(self._stop_proxy)
+            self._atexit_registered = True
 
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
@@ -87,8 +112,6 @@ class ClaudeCodeAdapter:
                 )
                 raise RuntimeError(f"Proxy process exited early: {stderr}")
             try:
-                import httpx
-
                 resp = httpx.get(f"http://127.0.0.1:{port}/health", timeout=1.0)
                 if resp.status_code == 200:
                     log.info(
@@ -114,7 +137,7 @@ class ClaudeCodeAdapter:
 
         if self._db_path and self._db_path.exists():
             self._db_path.unlink(missing_ok=True)
-            self._db_path = None
+        self._db_path = None
 
     def _build_args(
         self, prompt: str, workspace: Path, session_id: str | None

@@ -45,6 +45,7 @@ class ScenarioOrchestrator:
                 self._workspace_mgr.run_setup(workspace, scenario.setup)
 
             step_results = []
+            step_costs = []
             session_id = None
             all_passed = True
 
@@ -66,6 +67,9 @@ class ScenarioOrchestrator:
                     )
 
                 session_id = evidence.session_id
+                if evidence.cost_usd is not None:
+                    step_costs.append(evidence.cost_usd)
+
                 supported = self._adapter.supported_assertions()
                 assertion_results = []
                 skipped = 0
@@ -116,13 +120,14 @@ class ScenarioOrchestrator:
                     all_passed = False
 
             duration_ms = (time.monotonic() - start) * 1000
+            total_cost = sum(step_costs) if step_costs else None
             return ScenarioResult(
                 scenario_name=scenario.name,
                 steps=step_results,
                 after_assertions=after_results,
                 passed=all_passed,
                 duration_ms=duration_ms,
-                cost_usd=None,
+                cost_usd=total_cost,
                 error=None,
             )
 

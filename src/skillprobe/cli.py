@@ -147,8 +147,9 @@ def run_tests(test_file: str, model: str | None, provider: str | None, anthropic
 @main.command("assert")
 @click.argument("test_file", type=click.Path(exists=True))
 @click.option("--db", default="skillprobe.db", type=click.Path(), help="Database path")
-@click.option("--last", default=20, type=int, help="Check last N captures")
-def assert_captures(test_file: str, db: str, last: int):
+@click.option("--capture", "capture_ids", multiple=True, type=int, help="Specific capture IDs to check")
+@click.option("--last", default=None, type=int, help="Check last N captures")
+def assert_captures(test_file: str, db: str, capture_ids: tuple[int, ...], last: int | None):
     from skillprobe.parsers import parse_request
     from skillprobe.proxy.handler import _extract_response_text
     from skillprobe.storage.database import Database
@@ -158,11 +159,16 @@ def assert_captures(test_file: str, db: str, last: int):
     suite = load_test_suite(Path(test_file))
     database = Database(Path(db))
     database.initialize()
-    captures = database.list_captures(limit=last)
+
+    if capture_ids:
+        captures = [database.get_capture(cid) for cid in capture_ids]
+        captures = [c for c in captures if c is not None]
+    else:
+        captures = database.list_captures(limit=last or 20)
     database.close()
 
     if not captures:
-        click.echo("No captures to check.")
+        click.echo("No captures found.")
         return
 
     captures_with_response = [c for c in captures if c.response_body]
@@ -173,31 +179,41 @@ def assert_captures(test_file: str, db: str, last: int):
 
     click.echo(f"Checking {len(captures_with_response)} captures against {len(suite.tests)} test cases\n")
 
-    for tc in suite.tests:
-        passed = 0
-        total = len(captures_with_response)
-        failures = []
-        for c in captures_with_response:
-            parsed = parse_request(c.path, c.request_body)
-            system_prompt = parsed.system_prompt if parsed else ""
-            provider = parsed.provider if parsed else c.provider
-            response_text = _extract_response_text(c.response_body, provider)
-            if not response_text:
-                total -= 1
-                continue
-            results = [check_assertion(a, response_text, system_prompt) for a in tc.assertions]
-            if all(r.passed for r in results):
-                passed += 1
-            else:
-                failed = [r for r in results if not r.passed]
-                failures.append((c.id, failed))
+    for c in captures_with_response:
+        parsed = parse_request(c.path, c.request_body)
+        system_prompt = parsed.system_prompt if parsed else ""
+        provider = parsed.provider if parsed else c.provider
+        response_text = _extract_response_text(c.response_body, provider)
+        if not response_text:
+            continue
 
-        rate = passed / total if total > 0 else 0
-        icon = "PASS" if rate == 1.0 else "FAIL" if rate == 0.0 else "PARTIAL"
-        click.echo(f"  [{icon}] {tc.name} ({passed}/{total}, {rate:.0%})")
-        for cap_id, failed_asserts in failures[:3]:
-            for a in failed_asserts:
-                click.echo(f"         capture #{cap_id}: {a.details}")
+        user_msg = _last_user_message(c.request_body)
+        click.echo(f"  Capture #{c.id} - \"{user_msg[:60]}{'...' if len(user_msg) > 60 else ''}\"")
+
+        for tc in suite.tests:
+            results = [check_assertion(a, response_text, system_prompt) for a in tc.assertions]
+            all_passed = all(r.passed for r in results)
+            icon = "PASS" if all_passed else "FAIL"
+            click.echo(f"    [{icon}] {tc.name}")
+            if not all_passed:
+                for r in results:
+                    if not r.passed:
+                        click.echo(f"           {r.details}")
+        click.echo()
+
+
+def _last_user_message(request_body: dict) -> str:
+    for msg in reversed(request_body.get("messages", [])):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    return block["text"]
+    return "(no user message)"
 
 
 @main.command()

@@ -72,3 +72,26 @@ tests:
     def test_missing_file_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
             load_test_suite(tmp_path / "nonexistent.yaml")
+
+    def test_parses_when_conditions(self, tmp_path):
+        content = """
+skill: ./test.md
+tests:
+  - name: conditional test
+    message: "hello"
+    when:
+      - type: regex
+        value: "def \\\\w+"
+    assert:
+      - type: contains
+        value: return
+"""
+        f = tmp_path / "test.yaml"
+        f.write_text(content)
+        suite = load_test_suite(f)
+        assert len(suite.tests[0].when) == 1
+        assert suite.tests[0].when[0]["type"] == "regex"
+
+    def test_default_when_is_empty(self, suite_file):
+        suite = load_test_suite(suite_file)
+        assert suite.tests[0].when == []

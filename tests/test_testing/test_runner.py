@@ -69,6 +69,39 @@ class TestRunnerMultipleRuns:
         assert abs(result.pass_rate - 2 / 3) < 0.01
 
 
+class TestRunnerWhenConditions:
+    @pytest.mark.asyncio
+    async def test_skips_when_conditions_fail(self):
+        client = FakeLLMClient(["Hello world, no code here."])
+        runner = TestRunner(client)
+        tc = TestCase(
+            name="test_skip",
+            message="hello",
+            when=[{"type": "regex", "value": r"def \w+\("}],
+            assertions=[{"type": "not_contains", "value": '"""'}],
+            runs=1,
+        )
+        result = await runner.run_case(tc, system_prompt="")
+        assert result.skipped_runs == 1
+        assert result.evaluated_runs == 0
+        assert result.passed_runs == 0
+
+    @pytest.mark.asyncio
+    async def test_evaluates_when_conditions_pass(self):
+        client = FakeLLMClient(["def foo():\n    return 42"])
+        runner = TestRunner(client)
+        tc = TestCase(
+            name="test_eval",
+            message="write code",
+            when=[{"type": "regex", "value": r"def \w+\("}],
+            assertions=[{"type": "contains", "value": "return"}],
+            runs=1,
+        )
+        result = await runner.run_case(tc, system_prompt="")
+        assert result.skipped_runs == 0
+        assert result.passed_runs == 1
+
+
 class TestRunnerSuite:
     @pytest.mark.asyncio
     async def test_runs_full_suite(self):

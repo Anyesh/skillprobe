@@ -60,3 +60,40 @@ class TestUnknownAssertion:
         result = check_assertion({"type": "nonexistent", "value": "x"}, "response")
         assert result.passed is False
         assert "unknown" in result.details.lower()
+
+
+class TestWhenConditions:
+    def test_empty_conditions_returns_true(self):
+        from skillprobe.testing.assertions import check_when_conditions
+        assert check_when_conditions([], "any text") is True
+
+    def test_single_matching_condition(self):
+        from skillprobe.testing.assertions import check_when_conditions
+        assert check_when_conditions(
+            [{"type": "contains", "value": "def"}],
+            "def foo(): pass"
+        ) is True
+
+    def test_single_non_matching_condition(self):
+        from skillprobe.testing.assertions import check_when_conditions
+        assert check_when_conditions(
+            [{"type": "contains", "value": "class"}],
+            "def foo(): pass"
+        ) is False
+
+    def test_all_conditions_must_match(self):
+        from skillprobe.testing.assertions import check_when_conditions
+        assert check_when_conditions(
+            [
+                {"type": "contains", "value": "def"},
+                {"type": "contains", "value": "return"},
+            ],
+            "def foo(): pass"
+        ) is False
+
+    def test_regex_in_when(self):
+        from skillprobe.testing.assertions import check_when_conditions
+        assert check_when_conditions(
+            [{"type": "regex", "value": r"def \w+\("}],
+            "def login(username):"
+        ) is True

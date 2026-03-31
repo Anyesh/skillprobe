@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from skillprobe.testing.assertions import AssertionResult, check_assertion
+from skillprobe.testing.assertions import AssertionResult, check_assertion, check_when_conditions
 from skillprobe.testing.loader import TestCase, TestSuite
 
 
@@ -16,13 +16,18 @@ class RunResult:
     total_runs: int
     passed_runs: int
     failed_runs: int
+    skipped_runs: int
     assertion_results: list[list[AssertionResult]]
 
     @property
+    def evaluated_runs(self) -> int:
+        return self.total_runs - self.skipped_runs
+
+    @property
     def pass_rate(self) -> float:
-        if self.total_runs == 0:
+        if self.evaluated_runs == 0:
             return 0.0
-        return self.passed_runs / self.total_runs
+        return self.passed_runs / self.evaluated_runs
 
 
 class TestRunner:
@@ -32,6 +37,7 @@ class TestRunner:
     async def run_case(self, case: TestCase, system_prompt: str) -> RunResult:
         all_results: list[list[AssertionResult]] = []
         passed = 0
+        skipped = 0
         for _ in range(case.runs):
             message = case.message
             if case.code_context:
@@ -42,6 +48,9 @@ class TestRunner:
                 model="",
                 provider="",
             )
+            if not check_when_conditions(case.when, response, system_prompt):
+                skipped += 1
+                continue
             run_assertions = [
                 check_assertion(a, response, system_prompt)
                 for a in case.assertions
@@ -53,7 +62,8 @@ class TestRunner:
             test_name=case.name,
             total_runs=case.runs,
             passed_runs=passed,
-            failed_runs=case.runs - passed,
+            failed_runs=case.runs - passed - skipped,
+            skipped_runs=skipped,
             assertion_results=all_results,
         )
 

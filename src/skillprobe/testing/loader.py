@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +12,7 @@ class TestCase:
     assertions: list[dict[str, Any]]
     runs: int = 1
     code_context: str | None = None
+    when: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -37,6 +38,7 @@ def load_test_suite(path: Path) -> TestSuite:
             assertions=t.get("assert", []),
             runs=t.get("runs", 1),
             code_context=t.get("code_context"),
+            when=t.get("when", []),
         ))
 
     return TestSuite(

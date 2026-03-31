@@ -153,7 +153,7 @@ def assert_captures(test_file: str, db: str, capture_ids: tuple[int, ...], last:
     from skillprobe.parsers import parse_request
     from skillprobe.proxy.handler import _extract_response_text
     from skillprobe.storage.database import Database
-    from skillprobe.testing.assertions import check_assertion
+    from skillprobe.testing.assertions import check_assertion, check_when_conditions
     from skillprobe.testing.loader import load_test_suite
 
     suite = load_test_suite(Path(test_file))
@@ -196,6 +196,9 @@ def assert_captures(test_file: str, db: str, capture_ids: tuple[int, ...], last:
             click.echo(f"    Skills detected: {skill_str}")
 
         for tc in suite.tests:
+            if not check_when_conditions(tc.when, response_text, system_prompt):
+                click.echo(f"    [SKIP] {tc.name}")
+                continue
             results = [check_assertion(a, response_text, system_prompt, parsed_data=c.parsed_data) for a in tc.assertions]
             all_passed = all(r.passed for r in results)
             icon = "PASS" if all_passed else "FAIL"

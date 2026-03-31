@@ -26,6 +26,9 @@ def create_app(config: ProxyConfig, db: Database) -> web.Application:
     app["config"] = config
     app["db"] = db
     app["http_client"] = httpx.AsyncClient(timeout=120.0)
+    if config.skill_dirs:
+        from skillprobe.analysis.skill_detector import SkillDetector
+        app["skill_detector"] = SkillDetector(config.skill_dirs)
     app.router.add_get("/health", handle_health)
     app.router.add_route("*", "/{path:.*}", handle_proxy)
     app.on_cleanup.append(cleanup)
@@ -205,6 +208,12 @@ async def _handle_streaming(request, client, db, forward_url, headers, raw_body,
             sections = len(parsed.system_sections) if parsed else 0
             response_text = _extract_response_text(response_body, provider)
 
+            detected_skills = []
+            if parsed and "skill_detector" in request.app:
+                detector = request.app["skill_detector"]
+                matches = detector.detect(parsed.system_prompt)
+                detected_skills = [{"name": m.name, "score": m.score} for m in matches]
+
             capture = Capture(
                 timestamp=datetime.now(timezone.utc),
                 provider=provider,
@@ -214,7 +223,7 @@ async def _handle_streaming(request, client, db, forward_url, headers, raw_body,
                 response_body=response_body,
                 response_status=resp.status_code,
                 status=CaptureStatus.COMPLETED,
-                parsed_data=None,
+                parsed_data={"detected_skills": detected_skills} if detected_skills else None,
                 duration_ms=duration_ms,
             )
             capture_id = db.save_capture(capture)
@@ -223,6 +232,9 @@ async def _handle_streaming(request, client, db, forward_url, headers, raw_body,
                 "  -> %d (%dms) capture=#%d system=%d chars, %d sections, response=%d chars",
                 resp.status_code, duration_ms, capture_id, system_chars, sections, len(response_text),
             )
+            if detected_skills:
+                skill_names = ", ".join(f"{s['name']}({s['score']:.0%})" for s in detected_skills)
+                log.info("  skills: [%s]", skill_names)
             return stream_response
     except httpx.HTTPError as e:
         duration_ms = (time.monotonic() - start_time) * 1000
@@ -257,6 +269,12 @@ async def _handle_buffered(request, client, db, forward_url, headers, raw_body, 
         sections = len(parsed.system_sections) if parsed else 0
         response_text = _extract_response_text(response_body, provider)
 
+        detected_skills = []
+        if parsed and "skill_detector" in request.app:
+            detector = request.app["skill_detector"]
+            matches = detector.detect(parsed.system_prompt)
+            detected_skills = [{"name": m.name, "score": m.score} for m in matches]
+
         capture = Capture(
             timestamp=datetime.now(timezone.utc),
             provider=provider,
@@ -266,7 +284,7 @@ async def _handle_buffered(request, client, db, forward_url, headers, raw_body, 
             response_body=response_body,
             response_status=resp.status_code,
             status=CaptureStatus.COMPLETED,
-            parsed_data=None,
+            parsed_data={"detected_skills": detected_skills} if detected_skills else None,
             duration_ms=duration_ms,
         )
         capture_id = db.save_capture(capture)
@@ -275,6 +293,9 @@ async def _handle_buffered(request, client, db, forward_url, headers, raw_body, 
             "  -> %d (%dms) capture=#%d system=%d chars, %d sections, response=%d chars",
             resp.status_code, duration_ms, capture_id, system_chars, sections, len(response_text),
         )
+        if detected_skills:
+            skill_names = ", ".join(f"{s['name']}({s['score']:.0%})" for s in detected_skills)
+            log.info("  skills: [%s]", skill_names)
 
         response_headers = {
             k: v for k, v in resp.headers.items()

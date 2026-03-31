@@ -190,8 +190,13 @@ def assert_captures(test_file: str, db: str, capture_ids: tuple[int, ...], last:
         user_msg = _last_user_message(c.request_body)
         click.echo(f"  Capture #{c.id} - \"{user_msg[:60]}{'...' if len(user_msg) > 60 else ''}\"")
 
+        if c.parsed_data and c.parsed_data.get("detected_skills"):
+            skills = c.parsed_data["detected_skills"]
+            skill_str = ", ".join(f"{s['name']}({s['score']:.0%})" for s in skills)
+            click.echo(f"    Skills detected: {skill_str}")
+
         for tc in suite.tests:
-            results = [check_assertion(a, response_text, system_prompt) for a in tc.assertions]
+            results = [check_assertion(a, response_text, system_prompt, parsed_data=c.parsed_data) for a in tc.assertions]
             all_passed = all(r.passed for r in results)
             icon = "PASS" if all_passed else "FAIL"
             click.echo(f"    [{icon}] {tc.name}")

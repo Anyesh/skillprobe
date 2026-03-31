@@ -142,3 +142,65 @@ def run_tests(test_file: str, model: str | None, provider: str | None, anthropic
     asyncio.run(client.close())
     any_failed = any(r.pass_rate < 1.0 for r in results)
     raise SystemExit(1 if any_failed else 0)
+
+
+@main.command()
+@click.option("--db", default="skillprobe.db", type=click.Path(), help="Database path")
+@click.option("--skills", multiple=True, type=click.Path(exists=True), help="Skill directories")
+@click.option("--last", default=50, type=int, help="Analyze last N captures")
+def report(db: str, skills: tuple[str, ...], last: int):
+    from collections import Counter
+
+    from skillprobe.analysis.skill_detector import SkillDetector
+    from skillprobe.analysis.token_counter import TokenCounter
+    from skillprobe.parsers import parse_request
+    from skillprobe.storage.database import Database
+
+    database = Database(Path(db))
+    database.initialize()
+    captures = database.list_captures(limit=last)
+    database.close()
+
+    if not captures:
+        click.echo("No captures to analyze.")
+        return
+
+    click.echo(f"Analyzing {len(captures)} captures...\n")
+
+    model_counts: Counter[str] = Counter()
+    provider_counts: Counter[str] = Counter()
+    total_system_tokens = 0
+    counter = TokenCounter()
+    skill_hits: Counter[str] = Counter()
+
+    detector = SkillDetector([Path(s) for s in skills]) if skills else None
+
+    for c in captures:
+        parsed = parse_request(c.path, c.request_body)
+        if not parsed:
+            continue
+        model_counts[parsed.model] += 1
+        provider_counts[parsed.provider] += 1
+        tc = counter.count_system(parsed.system_prompt)
+        total_system_tokens += tc.total
+
+        if detector:
+            matches = detector.detect(parsed.system_prompt)
+            for m in matches:
+                skill_hits[m.name] += 1
+
+    click.echo("Provider breakdown:")
+    for prov, count in provider_counts.most_common():
+        click.echo(f"  {prov}: {count}")
+
+    click.echo("\nModel breakdown:")
+    for model, count in model_counts.most_common():
+        click.echo(f"  {model}: {count}")
+
+    avg_tokens = total_system_tokens // len(captures) if captures else 0
+    click.echo(f"\nAvg system prompt tokens: {avg_tokens:,}")
+
+    if skill_hits:
+        click.echo("\nSkill activation frequency:")
+        for name, count in skill_hits.most_common():
+            click.echo(f"  {name}: {count}/{len(captures)} ({count / len(captures):.0%})")

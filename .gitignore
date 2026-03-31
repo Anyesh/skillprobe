@@ -21,3 +21,6 @@ main.py
 
 # Plans and docs not part of the project
 docs/superpowers/
+
+# Harness workspace temp directories
+.skillprobe-workspaces/

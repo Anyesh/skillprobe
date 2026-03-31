@@ -102,3 +102,43 @@ def inspect(capture_id: int, db: str, full: bool, skills: tuple[str, ...]):
                 click.echo(f"  {m.name} (score: {m.score:.0%})")
         else:
             click.echo(f"\nNo skills detected from provided directories.")
+
+
+@main.command("test")
+@click.argument("test_file", type=click.Path(exists=True))
+@click.option("--model", default=None, help="Override model from test suite")
+@click.option("--provider", default=None, help="Override provider")
+@click.option("--anthropic-key", envvar="ANTHROPIC_API_KEY", default="", help="Anthropic API key")
+@click.option("--openai-key", envvar="OPENAI_API_KEY", default="", help="OpenAI API key")
+def run_tests(test_file: str, model: str | None, provider: str | None, anthropic_key: str, openai_key: str):
+    import asyncio
+
+    from skillprobe.testing.llm_client import HttpLLMClient
+    from skillprobe.testing.loader import load_test_suite
+    from skillprobe.testing.reporter import format_results
+    from skillprobe.testing.runner import TestRunner
+
+    suite = load_test_suite(Path(test_file))
+    if model:
+        suite.model = model
+    if provider:
+        suite.provider = provider
+
+    client = HttpLLMClient(
+        anthropic_api_key=anthropic_key,
+        openai_api_key=openai_key,
+    )
+    runner = TestRunner(client)
+
+    click.echo(f"Running: {test_file}")
+    click.echo(f"  Model: {suite.model}")
+    click.echo(f"  Provider: {suite.provider}")
+    click.echo(f"  Tests: {len(suite.tests)}")
+    click.echo()
+
+    results = asyncio.run(runner.run_suite(suite))
+    click.echo(format_results(results))
+
+    asyncio.run(client.close())
+    any_failed = any(r.pass_rate < 1.0 for r in results)
+    raise SystemExit(1 if any_failed else 0)

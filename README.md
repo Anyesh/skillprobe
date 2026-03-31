@@ -4,6 +4,8 @@ AI coding tools like Claude Code, Cursor, Copilot etc all inject instructions in
 
 skillprobe is a local proxy that sits between your tool and the LLM API, captures the full request and response, and lets you run assertions against them. It works with subscriptions (Claude Pro, Cursor Pro, etc) since your tool handles authentication normally and skillprobe just observes the traffic going through.
 
+It also has a **harness** that automates the entire flow -- no more manually opening Claude Code, typing prompts, and checking results. One command spins up the proxy, launches `claude -p` or Cursor's `agent -p` as subprocesses, runs your test scenarios, evaluates assertions, and tears everything down. Works like a test suite.
+
 ## Quick start
 
 ```bash
@@ -55,6 +57,83 @@ tests:
 ```
 
 Supported assertion types are `contains`, `not_contains`, `regex`, `skill_present`, and `skill_loaded`.
+
+## Automated harness testing
+
+Instead of manually running prompts through Claude Code or Cursor, the harness automates the full lifecycle. Write scenario YAML, run one command:
+
+```bash
+uv run skillprobe harness tests/my-skill.yaml --harness claude-code --model claude-haiku-4-5-20251001
+```
+
+```
+Running: tests/my-skill.yaml
+  Harness: claude-code
+  Model: claude-haiku-4-5-20251001
+  Scenarios: 3
+  Parallel: 1
+
+  [PASS] commit skill activates on request (9.1s)
+  [PASS] multi-turn refinement (12.3s)
+  [FAIL] negative activation -- 'commit' found in response
+         step 1: "explain what this project does"
+           'commit' found in response
+
+  2/3 passed (27.8s)
+```
+
+### Scenario format
+
+Scenarios support multi-step conversations, workspace fixtures, setup commands, and post-run assertions:
+
+```yaml
+harness: claude-code
+model: claude-haiku-4-5-20251001
+timeout: 120
+skill: ./skills/commit
+
+scenarios:
+  - name: "commit skill activates on request"
+    workspace: fixtures/dirty-repo
+    setup:
+      - run: "echo 'change' >> file.txt && git add ."
+    steps:
+      - prompt: "commit my changes"
+        assert:
+          - type: contains
+            value: "commit"
+          - type: tool_called
+            value: "Bash"
+    after:
+      - type: file_exists
+        value: ".git/COMMIT_EDITMSG"
+
+  - name: "does not activate for unrelated request"
+    steps:
+      - prompt: "explain what this project does"
+        assert:
+          - type: not_contains
+            value: "commit"
+```
+
+The harness supports `contains`, `not_contains`, `regex`, `skill_present`, `skill_loaded`, `tool_called`, `file_exists`, and `file_contains` assertions. Any assertion can be inverted with `negate: true`.
+
+### Harness support
+
+| Harness | Command | Proxy capture | Behavioral testing |
+|---|---|---|---|
+| Claude Code | `claude -p` | yes (full system prompt, skill detection) | yes |
+| Cursor | `agent -p` | no (Cursor routes through its own API) | yes |
+
+### Generating tests
+
+Point `init` at a skill directory and it uses the LLM to generate a starter test suite:
+
+```bash
+uv run skillprobe init ./skills/commit --harness claude-code
+```
+
+This reads the SKILL.md, generates scenarios covering positive activation, negative activation, behavioral correctness, and edge cases, then writes a YAML file you can review and tweak.
 
 ## Optimizing skills
 
@@ -126,6 +205,8 @@ This isnt about testing Claude Code or Cursor's loading logic -- its about makin
 - `captures` - list whats been captured
 - `inspect <id>` - look at a specific capture in detail
 - `assert <test.yaml>` - check captures against assertions
+- `harness <test.yaml>` - automated end-to-end skill testing (`--harness`, `--parallel`, `--model`)
+- `init <skill-dir>` - generate test YAML from a skill using LLM
 - `analyze <test.yaml>` - find failure patterns, suggest mutations
 - `optimize <skill.md>` - apply a mutation (backs up the original)
 - `diff <test.yaml>` - compare sessions

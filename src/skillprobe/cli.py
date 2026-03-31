@@ -15,10 +15,27 @@ def main():
 @click.option("--host", default="127.0.0.1", help="Proxy listen host")
 @click.option("--port", default=9339, type=int, help="Proxy listen port")
 @click.option("--db", default="skillprobe.db", type=click.Path(), help="Database path")
-@click.option("--skills", multiple=True, type=click.Path(exists=True), help="Skill directories to monitor")
-@click.option("--watch", default=None, type=click.Path(exists=True), help="Test YAML file for live assertion checking")
+@click.option(
+    "--skills",
+    multiple=True,
+    type=click.Path(exists=True),
+    help="Skill directories to monitor",
+)
+@click.option(
+    "--watch",
+    default=None,
+    type=click.Path(exists=True),
+    help="Test YAML file for live assertion checking",
+)
 @click.option("--session", default=None, help="Tag captures with session name")
-def start(host: str, port: int, db: str, skills: tuple[str, ...], watch: str | None, session: str | None):
+def start(
+    host: str,
+    port: int,
+    db: str,
+    skills: tuple[str, ...],
+    watch: str | None,
+    session: str | None,
+):
     from skillprobe.proxy.server import run_proxy
 
     config = ProxyConfig(
@@ -48,20 +65,29 @@ def captures(db: str, limit: int, provider: str | None):
         click.echo("No captures found.")
         return
 
-    click.echo(f"{'ID':>5} {'Time':>20} {'Provider':>10} {'Model':>30} {'Status':>6} {'Duration':>10}")
+    click.echo(
+        f"{'ID':>5} {'Time':>20} {'Provider':>10} {'Model':>30} {'Status':>6} {'Duration':>10}"
+    )
     click.echo("-" * 85)
     for c in results:
         model = c.request_body.get("model", "?")[:30]
         ts = c.timestamp.strftime("%Y-%m-%d %H:%M:%S")
         dur = f"{c.duration_ms:.0f}ms" if c.duration_ms else "?"
-        click.echo(f"{c.id:>5} {ts:>20} {c.provider:>10} {model:>30} {c.response_status or '?':>6} {dur:>10}")
+        click.echo(
+            f"{c.id:>5} {ts:>20} {c.provider:>10} {model:>30} {c.response_status or '?':>6} {dur:>10}"
+        )
 
 
 @main.command()
 @click.argument("capture_id", type=int)
 @click.option("--db", default="skillprobe.db", type=click.Path(), help="Database path")
 @click.option("--full", is_flag=True, help="Show full system prompt")
-@click.option("--skills", multiple=True, type=click.Path(exists=True), help="Skill directories for detection")
+@click.option(
+    "--skills",
+    multiple=True,
+    type=click.Path(exists=True),
+    help="Skill directories for detection",
+)
 def inspect(capture_id: int, db: str, full: bool, skills: tuple[str, ...]):
     from skillprobe.analysis.skill_detector import SkillDetector
     from skillprobe.parsers import parse_request
@@ -112,9 +138,19 @@ def inspect(capture_id: int, db: str, full: bool, skills: tuple[str, ...]):
 @click.argument("test_file", type=click.Path(exists=True))
 @click.option("--model", default=None, help="Override model from test suite")
 @click.option("--provider", default=None, help="Override provider")
-@click.option("--anthropic-key", envvar="ANTHROPIC_API_KEY", default="", help="Anthropic API key")
-@click.option("--openai-key", envvar="OPENAI_API_KEY", default="", help="OpenAI API key")
-def run_tests(test_file: str, model: str | None, provider: str | None, anthropic_key: str, openai_key: str):
+@click.option(
+    "--anthropic-key", envvar="ANTHROPIC_API_KEY", default="", help="Anthropic API key"
+)
+@click.option(
+    "--openai-key", envvar="OPENAI_API_KEY", default="", help="OpenAI API key"
+)
+def run_tests(
+    test_file: str,
+    model: str | None,
+    provider: str | None,
+    anthropic_key: str,
+    openai_key: str,
+):
     import asyncio
 
     from skillprobe.testing.llm_client import HttpLLMClient
@@ -151,9 +187,17 @@ def run_tests(test_file: str, model: str | None, provider: str | None, anthropic
 @main.command("assert")
 @click.argument("test_file", type=click.Path(exists=True))
 @click.option("--db", default="skillprobe.db", type=click.Path(), help="Database path")
-@click.option("--capture", "capture_ids", multiple=True, type=int, help="Specific capture IDs to check")
+@click.option(
+    "--capture",
+    "capture_ids",
+    multiple=True,
+    type=int,
+    help="Specific capture IDs to check",
+)
 @click.option("--last", default=None, type=int, help="Check last N captures")
-def assert_captures(test_file: str, db: str, capture_ids: tuple[int, ...], last: int | None):
+def assert_captures(
+    test_file: str, db: str, capture_ids: tuple[int, ...], last: int | None
+):
     from skillprobe.parsers import parse_request
     from skillprobe.proxy.handler import _extract_response_text
     from skillprobe.storage.database import Database
@@ -181,7 +225,9 @@ def assert_captures(test_file: str, db: str, capture_ids: tuple[int, ...], last:
         click.echo("Make sure streaming support is enabled (restart proxy).")
         return
 
-    click.echo(f"Checking {len(captures_with_response)} captures against {len(suite.tests)} test cases\n")
+    click.echo(
+        f"Checking {len(captures_with_response)} captures against {len(suite.tests)} test cases\n"
+    )
 
     for c in captures_with_response:
         parsed = parse_request(c.path, c.request_body)
@@ -192,7 +238,9 @@ def assert_captures(test_file: str, db: str, capture_ids: tuple[int, ...], last:
             continue
 
         user_msg = _last_user_message(c.request_body)
-        click.echo(f"  Capture #{c.id} - \"{user_msg[:60]}{'...' if len(user_msg) > 60 else ''}\"")
+        click.echo(
+            f'  Capture #{c.id} - "{user_msg[:60]}{"..." if len(user_msg) > 60 else ""}"'
+        )
 
         if c.parsed_data and c.parsed_data.get("detected_skills"):
             skills = c.parsed_data["detected_skills"]
@@ -203,7 +251,12 @@ def assert_captures(test_file: str, db: str, capture_ids: tuple[int, ...], last:
             if not check_when_conditions(tc.when, response_text, system_prompt):
                 click.echo(f"    [SKIP] {tc.name}")
                 continue
-            results = [check_assertion(a, response_text, system_prompt, parsed_data=c.parsed_data) for a in tc.assertions]
+            results = [
+                check_assertion(
+                    a, response_text, system_prompt, parsed_data=c.parsed_data
+                )
+                for a in tc.assertions
+            ]
             all_passed = all(r.passed for r in results)
             icon = "PASS" if all_passed else "FAIL"
             click.echo(f"    [{icon}] {tc.name}")
@@ -230,7 +283,9 @@ def _last_user_message(request_body: dict) -> str:
 
 @main.command()
 @click.option("--db", default="skillprobe.db", type=click.Path(), help="Database path")
-@click.option("--skills", multiple=True, type=click.Path(exists=True), help="Skill directories")
+@click.option(
+    "--skills", multiple=True, type=click.Path(exists=True), help="Skill directories"
+)
 @click.option("--last", default=50, type=int, help="Analyze last N captures")
 def report(db: str, skills: tuple[str, ...], last: int):
     from collections import Counter
@@ -287,12 +342,16 @@ def report(db: str, skills: tuple[str, ...], last: int):
     if skill_hits:
         click.echo("\nSkill activation frequency:")
         for name, count in skill_hits.most_common():
-            click.echo(f"  {name}: {count}/{len(captures)} ({count / len(captures):.0%})")
+            click.echo(
+                f"  {name}: {count}/{len(captures)} ({count / len(captures):.0%})"
+            )
 
 
 @main.command()
 @click.argument("test_file", type=click.Path(exists=True))
-@click.option("--session", "sessions", multiple=True, required=True, help="Sessions to compare")
+@click.option(
+    "--session", "sessions", multiple=True, required=True, help="Sessions to compare"
+)
 @click.option("--db", default="skillprobe.db", type=click.Path(), help="Database path")
 def diff(test_file: str, sessions: tuple[str, ...], db: str):
     from skillprobe.storage.database import Database
@@ -352,7 +411,9 @@ def analyze(test_file: str, db: str, session: str | None, last: int):
     click.echo(f"Failure Analysis ({len(captures)} captures)\n")
     for f in failures:
         passed = int(f.evaluated_count * (1 - f.failure_rate))
-        click.echo(f"  \"{f.test_name}\" -- {f.failure_rate:.0%} failure rate ({passed}/{f.evaluated_count} passed)")
+        click.echo(
+            f'  "{f.test_name}" -- {f.failure_rate:.0%} failure rate ({passed}/{f.evaluated_count} passed)'
+        )
         click.echo(f"    Assertion: {f.assertion_type} '{f.assertion_value}'")
         for sample in f.sample_failures[:2]:
             click.echo(f"    Example: {sample}")
@@ -370,15 +431,37 @@ def analyze(test_file: str, db: str, session: str | None, last: int):
 
 @main.command()
 @click.argument("skill_file", type=click.Path(exists=True))
-@click.option("--mutation", required=True, help="Mutation operator to apply (add_constraint, add_negative_example, etc.)")
-@click.option("--test", "test_file", required=True, type=click.Path(exists=True), help="Test YAML for failure analysis")
+@click.option(
+    "--mutation",
+    required=True,
+    help="Mutation operator to apply (add_constraint, add_negative_example, etc.)",
+)
+@click.option(
+    "--test",
+    "test_file",
+    required=True,
+    type=click.Path(exists=True),
+    help="Test YAML for failure analysis",
+)
 @click.option("--db", default="skillprobe.db", type=click.Path(), help="Database path")
 @click.option("--session", default=None, help="Session to analyze")
 @click.option("--last", default=50, type=int, help="Last N captures")
 @click.option("--revert", is_flag=True, help="Revert last mutation")
-def optimize(skill_file: str, mutation: str, test_file: str, db: str, session: str | None, last: int, revert: bool):
+def optimize(
+    skill_file: str,
+    mutation: str,
+    test_file: str,
+    db: str,
+    session: str | None,
+    last: int,
+    revert: bool,
+):
     from skillprobe.optimization.analyzer import analyze_failures
-    from skillprobe.optimization.mutations import apply_mutation, revert_mutation, suggest_mutations
+    from skillprobe.optimization.mutations import (
+        apply_mutation,
+        revert_mutation,
+        suggest_mutations,
+    )
     from skillprobe.storage.database import Database
     from skillprobe.testing.loader import load_test_suite
 
@@ -447,6 +530,126 @@ def activation(test_file: str, db: str, session: str | None, last: int):
         click.echo("No captures to check.")
         return
 
-    click.echo(f"Checking {len(cases)} skill activations against {len(captures)} captures\n")
+    click.echo(
+        f"Checking {len(cases)} skill activations against {len(captures)} captures\n"
+    )
     results = check_activations(cases, captures)
     click.echo(format_activation_results(results))
+
+
+@main.command()
+@click.argument("test_file", type=click.Path(exists=True))
+@click.option(
+    "--harness", "harness_name", default=None, help="Harness: claude-code or cursor"
+)
+@click.option("--model", default=None, help="Override model")
+@click.option("--parallel", default=1, type=int, help="Concurrent scenarios")
+@click.option(
+    "--timeout", default=None, type=int, help="Per-scenario timeout (seconds)"
+)
+@click.option(
+    "--max-cost", default=None, type=float, help="Max USD spend (Claude Code only)"
+)
+@click.option("--proxy-port", default=9339, type=int, help="Proxy port for Claude Code")
+@click.option("--fail-fast", is_flag=True, help="Stop on first scenario failure")
+@click.option("--verbose", is_flag=True, help="Show raw CLI output per step")
+def harness(
+    test_file: str,
+    harness_name: str | None,
+    model: str | None,
+    parallel: int,
+    timeout: int | None,
+    max_cost: float | None,
+    proxy_port: int,
+    fail_fast: bool,
+    verbose: bool,
+):
+    import asyncio
+
+    from skillprobe.harness.adapters import get_adapter
+    from skillprobe.harness.adapters.base import HarnessConfig
+    from skillprobe.harness.loader import load_scenario_suite
+    from skillprobe.harness.orchestrator import ScenarioOrchestrator
+    from skillprobe.harness.reporter import format_harness_results
+
+    suite = load_scenario_suite(Path(test_file))
+    resolved_harness = harness_name or suite.harness
+    resolved_model = model or suite.model
+    resolved_timeout = timeout or suite.timeout
+
+    config = HarnessConfig(
+        harness=resolved_harness,
+        model=resolved_model,
+        timeout=resolved_timeout,
+        max_cost=max_cost,
+        parallel=parallel,
+        proxy_port=proxy_port,
+    )
+
+    adapter = get_adapter(resolved_harness)
+
+    click.echo(f"Running: {test_file}")
+    click.echo(f"  Harness: {resolved_harness}")
+    click.echo(f"  Model: {resolved_model or 'default'}")
+    click.echo(f"  Scenarios: {len(suite.scenarios)}")
+    click.echo(f"  Parallel: {parallel}")
+    click.echo()
+
+    orchestrator = ScenarioOrchestrator(
+        adapter=adapter,
+        config=config,
+        work_dir=Path(".skillprobe-workspaces"),
+    )
+    results = asyncio.run(orchestrator.run(suite))
+    click.echo(format_harness_results(results))
+
+    any_failed = any(not r.passed for r in results)
+    raise SystemExit(1 if any_failed else 0)
+
+
+@main.command("init")
+@click.argument("skill_dir", type=click.Path(exists=True))
+@click.option("--harness", "harness_name", default="claude-code", help="Target harness")
+@click.option("--output", default=None, type=click.Path(), help="Output YAML path")
+@click.option("--model", default="claude-sonnet-4-6", help="Model for generation")
+@click.option(
+    "--anthropic-key", envvar="ANTHROPIC_API_KEY", default="", help="Anthropic API key"
+)
+@click.option(
+    "--fixtures-dir",
+    default="fixtures",
+    type=click.Path(),
+    help="Fixture output directory",
+)
+def init_tests(
+    skill_dir: str,
+    harness_name: str,
+    output: str | None,
+    model: str,
+    anthropic_key: str,
+    fixtures_dir: str,
+):
+    import asyncio
+
+    from skillprobe.harness.init_generator import generate_test_scaffold
+
+    skill_path = Path(skill_dir)
+    output_path = Path(output) if output else Path(f"tests/{skill_path.name}.yaml")
+
+    click.echo(f"Generating tests for: {skill_path}")
+    click.echo(f"  Harness: {harness_name}")
+    click.echo(f"  Model: {model}")
+    click.echo()
+
+    result = asyncio.run(
+        generate_test_scaffold(
+            skill_path=skill_path,
+            harness=harness_name,
+            model=model,
+            api_key=anthropic_key,
+            output_path=output_path,
+            fixtures_dir=Path(fixtures_dir),
+        )
+    )
+
+    click.echo(result)

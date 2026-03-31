@@ -318,3 +318,104 @@ def diff(test_file: str, sessions: tuple[str, ...], db: str):
         return
 
     click.echo(format_diff(results))
+
+
+@main.command()
+@click.argument("test_file", type=click.Path(exists=True))
+@click.option("--db", default="skillprobe.db", type=click.Path(), help="Database path")
+@click.option("--session", default=None, help="Analyze specific session")
+@click.option("--last", default=50, type=int, help="Analyze last N captures")
+def analyze(test_file: str, db: str, session: str | None, last: int):
+    from skillprobe.optimization.analyzer import analyze_failures
+    from skillprobe.optimization.mutations import suggest_mutations
+    from skillprobe.storage.database import Database
+    from skillprobe.testing.loader import load_test_suite
+
+    suite = load_test_suite(Path(test_file))
+    database = Database(Path(db))
+    database.initialize()
+    if session:
+        captures = database.list_captures_by_session(session)
+    else:
+        captures = database.list_captures(limit=last)
+    database.close()
+
+    if not captures:
+        click.echo("No captures to analyze.")
+        return
+
+    failures = analyze_failures(captures, suite)
+    if not failures:
+        click.echo(f"All assertions passing across {len(captures)} captures.")
+        return
+
+    click.echo(f"Failure Analysis ({len(captures)} captures)\n")
+    for f in failures:
+        passed = int(f.evaluated_count * (1 - f.failure_rate))
+        click.echo(f"  \"{f.test_name}\" -- {f.failure_rate:.0%} failure rate ({passed}/{f.evaluated_count} passed)")
+        click.echo(f"    Assertion: {f.assertion_type} '{f.assertion_value}'")
+        for sample in f.sample_failures[:2]:
+            click.echo(f"    Example: {sample}")
+
+    skill_path = suite.skill
+    if skill_path and Path(skill_path).exists():
+        skill_content = Path(skill_path).read_text(encoding="utf-8")
+        mutations = suggest_mutations(skill_content, failures)
+        if mutations:
+            click.echo(f"\nSuggested mutations:")
+            for i, m in enumerate(mutations, 1):
+                click.echo(f"  {i}. [{m.operator}] {m.description}")
+                click.echo(f"     Add: {m.addition}")
+
+
+@main.command()
+@click.argument("skill_file", type=click.Path(exists=True))
+@click.option("--mutation", required=True, help="Mutation operator to apply (add_constraint, add_negative_example, etc.)")
+@click.option("--test", "test_file", required=True, type=click.Path(exists=True), help="Test YAML for failure analysis")
+@click.option("--db", default="skillprobe.db", type=click.Path(), help="Database path")
+@click.option("--session", default=None, help="Session to analyze")
+@click.option("--last", default=50, type=int, help="Last N captures")
+@click.option("--revert", is_flag=True, help="Revert last mutation")
+def optimize(skill_file: str, mutation: str, test_file: str, db: str, session: str | None, last: int, revert: bool):
+    from skillprobe.optimization.analyzer import analyze_failures
+    from skillprobe.optimization.mutations import apply_mutation, revert_mutation, suggest_mutations
+    from skillprobe.storage.database import Database
+    from skillprobe.testing.loader import load_test_suite
+
+    skill_path = Path(skill_file)
+
+    if revert:
+        if revert_mutation(skill_path):
+            click.echo(f"Reverted {skill_path} to previous version.")
+        else:
+            click.echo(f"No backup found for {skill_path}.")
+        return
+
+    suite = load_test_suite(Path(test_file))
+    database = Database(Path(db))
+    database.initialize()
+    if session:
+        captures = database.list_captures_by_session(session)
+    else:
+        captures = database.list_captures(limit=last)
+    database.close()
+
+    failures = analyze_failures(captures, suite)
+    mutations = suggest_mutations(skill_path.read_text(encoding="utf-8"), failures)
+
+    target = None
+    for m in mutations:
+        if m.operator == mutation:
+            target = m
+            break
+
+    if not target:
+        click.echo(f"No '{mutation}' mutation suggested for current failures.")
+        click.echo(f"Available: {', '.join(m.operator for m in mutations)}")
+        return
+
+    click.echo(f"Applying [{target.operator}]: {target.description}")
+    click.echo(f"  Adding: {target.addition}")
+    apply_mutation(skill_path, target)
+    click.echo(f"\nSkill updated. Backup saved as {skill_path.with_suffix('.md.bak')}")
+    click.echo(f"Re-test with a new session to compare.")

@@ -87,6 +87,39 @@ uses type hints                     90%         85%    -5% regressed
 
 There are six mutation operators (add_constraint, add_negative_example, restructure, tighten_language, remove_bloat, add_counterexample) and you can revert if something makes things worse with `skillprobe optimize --revert`.
 
+## Activation testing
+
+Separate from whether a skill is being followed, theres also the question of whether it gets loaded at the right time. Skills arent always in context -- tools like Claude Code and Cursor load them dynamically based on relevance. If your skill's description or keywords are off, it might not load when it should, or load when it shouldnt.
+
+Activation tests let you define when a skill should and shouldnt be present:
+
+```yaml
+activations:
+  - skill: sqlalchemy
+    should_load_when:
+      - "write a sqlalchemy model"
+      - "create a database migration"
+    should_not_load_when:
+      - "write a hello world in python"
+      - "what is recursion"
+```
+
+Then check against your captures:
+
+```bash
+skillprobe activation tests/test-activation.yaml --last 50
+```
+
+```
+  sqlalchemy:
+    [OK] "write a sqlalchemy model" -- correctly loaded
+    [OK] "create a database migration" -- correctly loaded
+    [OK] "write a hello world in python" -- correctly not loaded
+    [!!] "what is recursion" -- expected not loaded, was loaded
+```
+
+This isnt about testing Claude Code or Cursor's loading logic -- its about making sure your skill file has the right description and content so the tool picks it up when it should.
+
 ## Commands
 
 - `start` - run the proxy (`--watch`, `--session`, `--skills`)
@@ -97,6 +130,7 @@ There are six mutation operators (add_constraint, add_negative_example, restruct
 - `optimize <skill.md>` - apply a mutation (backs up the original)
 - `diff <test.yaml>` - compare sessions
 - `test <test.yaml>` - run tests via direct API calls (needs API key)
+- `activation <test.yaml>` - check if skills load at the right time
 - `report` - aggregate stats
 
 ## What gets captured
@@ -106,3 +140,9 @@ The full API request including the system prompt with all injected skills, tool 
 ## Why not promptfoo or similar
 
 Tools like promptfoo test prompts in isolation by making their own API calls. They dont see what Claude Code or Cursor actually sends to the API, they cant tell you which skills got loaded or if two skills are conflicting, and they all require API keys which doesnt work if you're on a subscription plan. skillprobe captures the real traffic from real tools so what you test is what actually happens in practice.
+
+
+## References:
+- https://github.com/karpathy/autoresearch
+- https://www.news.aakashg.com/p/autoresearch-guide-for-pms
+- https://fortune.com/2026/03/17/andrej-karpathy-loop-autonomous-ai-agents-future/

@@ -8,3 +8,13 @@ activations:
       - "hello"
       - "explain how HTTP works"
       - "write a react component"
+
+  - skill: sqlalchemy
+    should_load_when:
+      - "write a sqlalchemy model"
+      - "create a database migration"
+      - "define the ORM schema"
+    should_not_load_when:
+      - "write a hello world in python"
+      - "what is recursion"
+      - "parse this JSON file"

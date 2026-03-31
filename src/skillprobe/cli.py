@@ -17,7 +17,8 @@ def main():
 @click.option("--db", default="skillprobe.db", type=click.Path(), help="Database path")
 @click.option("--skills", multiple=True, type=click.Path(exists=True), help="Skill directories to monitor")
 @click.option("--watch", default=None, type=click.Path(exists=True), help="Test YAML file for live assertion checking")
-def start(host: str, port: int, db: str, skills: tuple[str, ...], watch: str | None):
+@click.option("--session", default=None, help="Tag captures with session name")
+def start(host: str, port: int, db: str, skills: tuple[str, ...], watch: str | None, session: str | None):
     from skillprobe.proxy.server import run_proxy
 
     config = ProxyConfig(
@@ -26,6 +27,7 @@ def start(host: str, port: int, db: str, skills: tuple[str, ...], watch: str | N
         db_path=Path(db),
         skill_dirs=[Path(s) for s in skills],
         watch_test_file=Path(watch) if watch else None,
+        session=session,
     )
     run_proxy(config)
 
@@ -286,3 +288,33 @@ def report(db: str, skills: tuple[str, ...], last: int):
         click.echo("\nSkill activation frequency:")
         for name, count in skill_hits.most_common():
             click.echo(f"  {name}: {count}/{len(captures)} ({count / len(captures):.0%})")
+
+
+@main.command()
+@click.argument("test_file", type=click.Path(exists=True))
+@click.option("--session", "sessions", multiple=True, required=True, help="Sessions to compare")
+@click.option("--db", default="skillprobe.db", type=click.Path(), help="Database path")
+def diff(test_file: str, sessions: tuple[str, ...], db: str):
+    from skillprobe.storage.database import Database
+    from skillprobe.testing.diff import compute_session_results, format_diff
+    from skillprobe.testing.loader import load_test_suite
+
+    suite = load_test_suite(Path(test_file))
+    database = Database(Path(db))
+    database.initialize()
+
+    results = []
+    for session_name in sessions:
+        captures = database.list_captures_by_session(session_name)
+        if not captures:
+            click.echo(f"No captures found for session '{session_name}'.")
+            continue
+        result = compute_session_results(captures, suite)
+        results.append(result)
+    database.close()
+
+    if len(results) < 2:
+        click.echo("Need at least 2 sessions with captures to diff.")
+        return
+
+    click.echo(format_diff(results))

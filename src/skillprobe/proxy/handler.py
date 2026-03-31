@@ -231,6 +231,7 @@ async def _handle_streaming(request, client, db, forward_url, headers, raw_body,
                 status=CaptureStatus.COMPLETED,
                 parsed_data={"detected_skills": detected_skills} if detected_skills else None,
                 duration_ms=duration_ms,
+                session=request.app["config"].session,
             )
             capture_id = db.save_capture(capture)
 
@@ -295,6 +296,7 @@ async def _handle_buffered(request, client, db, forward_url, headers, raw_body, 
             status=CaptureStatus.COMPLETED,
             parsed_data={"detected_skills": detected_skills} if detected_skills else None,
             duration_ms=duration_ms,
+            session=request.app["config"].session,
         )
         capture_id = db.save_capture(capture)
 

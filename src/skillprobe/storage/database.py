@@ -34,6 +34,12 @@ class Database:
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(SCHEMA)
         self._conn.commit()
+        try:
+            self._conn.execute("ALTER TABLE captures ADD COLUMN session TEXT DEFAULT NULL")
+            self._conn.execute("CREATE INDEX IF NOT EXISTS idx_captures_session ON captures(session)")
+            self._conn.commit()
+        except Exception:
+            pass
 
     def close(self):
         if self._conn:
@@ -48,9 +54,9 @@ class Database:
         d = capture.to_dict()
         cursor = self._conn.execute(
             """INSERT INTO captures (timestamp, provider, method, path, request_body,
-               response_body, response_status, status, parsed_data, duration_ms)
+               response_body, response_status, status, parsed_data, duration_ms, session)
                VALUES (:timestamp, :provider, :method, :path, :request_body,
-               :response_body, :response_status, :status, :parsed_data, :duration_ms)""",
+               :response_body, :response_status, :status, :parsed_data, :duration_ms, :session)""",
             d,
         )
         self._conn.commit()
@@ -73,3 +79,16 @@ class Database:
         params.append(limit)
         cursor = self._conn.execute(query, params)
         return [Capture.from_dict(dict(row)) for row in cursor.fetchall()]
+
+    def list_captures_by_session(self, session: str, limit: int = 1000) -> list[Capture]:
+        cursor = self._conn.execute(
+            "SELECT * FROM captures WHERE session = ? ORDER BY timestamp DESC LIMIT ?",
+            (session, limit),
+        )
+        return [Capture.from_dict(dict(row)) for row in cursor.fetchall()]
+
+    def list_sessions(self) -> list[str]:
+        cursor = self._conn.execute(
+            "SELECT DISTINCT session FROM captures WHERE session IS NOT NULL ORDER BY session"
+        )
+        return [row["session"] for row in cursor.fetchall()]

@@ -12,3 +12,4 @@ class ProxyConfig:
     skill_dirs: list[Path] = field(default_factory=list)
     capture_responses: bool = True
     watch_test_file: Path | None = None
+    session: str | None = None

@@ -24,3 +24,4 @@ docs/superpowers/
 
 # Harness workspace temp directories
 .skillprobe-workspaces/
+.skillprobe-harness-*.db

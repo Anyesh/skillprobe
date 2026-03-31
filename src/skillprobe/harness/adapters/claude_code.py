@@ -1,20 +1,33 @@
 import asyncio
+import atexit
 import json
+import logging
 import os
+import signal
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 from skillprobe.harness.adapters.base import HarnessConfig
 from skillprobe.harness.evidence import StepEvidence, ToolCallEvent
 
+log = logging.getLogger("skillprobe.harness.claude_code")
+
 
 class ClaudeCodeAdapter:
     def __init__(self):
         self._config: HarnessConfig | None = None
+        self._proxy_proc: subprocess.Popen | None = None
+        self._db_path: Path | None = None
 
     def start(self, config: HarnessConfig) -> None:
         self._config = config
+        self._start_proxy()
 
-    async def send_prompt(self, prompt: str, workspace: Path, session_id: str | None) -> StepEvidence:
+    async def send_prompt(
+        self, prompt: str, workspace: Path, session_id: str | None
+    ) -> StepEvidence:
         args = self._build_args(prompt, workspace, session_id)
         env = self._build_env()
 
@@ -32,19 +45,86 @@ class ClaudeCodeAdapter:
 
     def supported_assertions(self) -> set[str]:
         return {
-            "contains", "not_contains", "regex",
-            "skill_present", "skill_loaded",
-            "tool_called", "file_exists", "file_contains",
+            "contains",
+            "not_contains",
+            "regex",
+            "skill_present",
+            "skill_loaded",
+            "tool_called",
+            "file_exists",
+            "file_contains",
         }
 
     def stop(self) -> None:
-        pass
+        self._stop_proxy()
 
-    def _build_args(self, prompt: str, workspace: Path, session_id: str | None) -> list[str]:
+    def _start_proxy(self) -> None:
+        port = self._config.proxy_port if self._config else 9339
+        self._db_path = Path(f".skillprobe-harness-{port}.db")
+
+        self._proxy_proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "skillprobe.harness.adapters._proxy_worker",
+                "--port",
+                str(port),
+                "--db",
+                str(self._db_path),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        atexit.register(self._stop_proxy)
+
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if self._proxy_proc.poll() is not None:
+                stderr = (
+                    self._proxy_proc.stderr.read().decode()
+                    if self._proxy_proc.stderr
+                    else ""
+                )
+                raise RuntimeError(f"Proxy process exited early: {stderr}")
+            try:
+                import httpx
+
+                resp = httpx.get(f"http://127.0.0.1:{port}/health", timeout=1.0)
+                if resp.status_code == 200:
+                    log.info(
+                        "Proxy started on port %d (pid %d)", port, self._proxy_proc.pid
+                    )
+                    return
+            except Exception:
+                time.sleep(0.2)
+
+        self._stop_proxy()
+        raise RuntimeError(f"Proxy failed to start on port {port} within 10s")
+
+    def _stop_proxy(self) -> None:
+        if self._proxy_proc and self._proxy_proc.poll() is None:
+            self._proxy_proc.terminate()
+            try:
+                self._proxy_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._proxy_proc.kill()
+                self._proxy_proc.wait(timeout=2)
+            log.info("Proxy stopped (pid %d)", self._proxy_proc.pid)
+        self._proxy_proc = None
+
+        if self._db_path and self._db_path.exists():
+            self._db_path.unlink(missing_ok=True)
+            self._db_path = None
+
+    def _build_args(
+        self, prompt: str, workspace: Path, session_id: str | None
+    ) -> list[str]:
         args = [
             "claude",
-            "-p", prompt,
-            "--output-format", "json",
+            "-p",
+            prompt,
+            "--output-format",
+            "json",
             "--no-session-persistence",
             "--dangerously-skip-permissions",
         ]

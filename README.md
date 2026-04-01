@@ -1,69 +1,52 @@
 # skillprobe
 
-AI coding tools like Claude Code, Cursor, Copilot etc all inject instructions into the LLM context behind the scenes (skills, rules, system prompts, whatever you want to call them). Theres no good way to test whether those instructions are actually being followed though. You write a skill that says "never add docstrings" and half the time the model adds them anyway.
+AI coding tools like Claude Code and Cursor inject instructions into the LLM context behind the scenes, whether they call them skills, rules, or system prompts. There's no good way to test whether those instructions are actually being followed. You write a skill that says "never add docstrings" and half the time the model adds them anyway.
 
-skillprobe is a local proxy that sits between your tool and the LLM API, captures the full request and response, and lets you run assertions against them. It works with subscriptions (Claude Pro, Cursor Pro, etc) since your tool handles authentication normally and skillprobe just observes the traffic going through.
+skillprobe automates the testing. It launches Claude Code or Cursor as subprocesses, runs your test scenarios in real workspaces, checks the output against assertions, and reports what passed and what didn't, all from a single command with no manual prompting required.
 
-It also has a **harness** that automates the entire flow so you dont have to manually open Claude Code, type prompts, and check results yourself. One command spins up the proxy, launches `claude -p` or Cursor's `agent -p` as subprocesses, runs your test scenarios, evaluates assertions, and tears everything down.
+## Who this is for (and who it isn't)
 
-## Quick start
+If you write a few skills for your own use and tweak them when something feels off, you probably don't need this. Most people create skills by asking an LLM to write one, try it a couple times, and if the output looks wrong they ask the LLM to adjust it. That loop is fast, cheap, and good enough for personal use.
+
+Where that loop breaks down:
+
+**Model updates break skills silently.** Anthropic ships a new Sonnet, Cursor updates their agent behavior, and a skill that worked last week now produces subtly different output. Nobody notices because nobody retested, and skillprobe exists to catch exactly that kind of silent regression.
+
+**Teams sharing skills across engineers.** When 20 developers share a "code review" skill, one person's gut check isn't representative because everyone is hitting it with different prompts, different codebases, and different expectations. You need actual coverage across scenarios to know whether the skill holds up.
+
+**Publishing to marketplaces.** Both Claude Code and Cursor now have plugin marketplaces where skill authors ship to thousands of users. At that point you're distributing software, not vibing with your own tool. User reports from strangers don't come with context, and "ask the LLM to fix it" doesn't scale to reproducing someone else's problem.
+
+**Breaking the endless tweak loop.** You named a skill "clean-python" and told it to never add docstrings, but after three rounds of edits you're not sure if the latest version is actually better or if you just moved the problem around. skillprobe gives you a definitive "this version is better than the last one" signal by running the same scenarios against both and comparing pass rates.
+
+If none of those situations apply to you, a simpler workflow (write skill, try it, adjust) is probably the right call. skillprobe is for when you need more confidence than vibing can provide.
+
+## Installation
 
 ```bash
-git clone <repo>
+pip install skillprobe
+```
+
+Or with uv:
+
+```bash
+uv tool install skillprobe
+```
+
+Or from source:
+
+```bash
+git clone https://github.com/Anyesh/skillprobe.git
 cd skillprobe
 uv sync
 ```
 
-```bash
-# start the proxy
-uv run skillprobe start --watch tests/my-skill.yaml
+## Quick start
 
-# in another terminal, point your tool at it
-ANTHROPIC_BASE_URL=http://localhost:9339 claude "write a prime checker"
-```
-
-You'll see assertion results in real time as responses come back:
-
-```
-12:30:45 [anthropic] POST /v1/messages model=claude-opus-4-6 messages=12 tools=15
-12:30:47   -> 200 (1823ms) capture=#42 system=45230 chars, 28 sections, response=892 chars
-           [PASS] no docstrings
-           [SKIP] imports at top (when condition not met)
-           [FAIL] uses type hints -- Pattern '-> ' did not match
-```
-
-## Writing tests
-
-Test suites are YAML files where you define assertions that run against LLM responses. The `when` field lets you make assertions conditional, so something like "no docstrings" only gets checked when the response actually contains a function definition.
-
-```yaml
-skill: ./skills/clean-python.md
-tests:
-  - name: no docstrings on simple functions
-    when:
-      - type: regex
-        value: "def \\w+\\("
-    assert:
-      - type: not_contains
-        value: '"""'
-
-  - name: uses type hints
-    when:
-      - type: regex
-        value: "def \\w+\\("
-    assert:
-      - type: regex
-        value: "-> "
-```
-
-Supported assertion types are `contains`, `not_contains`, `regex`, `skill_present`, and `skill_loaded`.
-
-## Automated harness testing
-
-The proxy workflow is great for observing what happens in real sessions, but it still requires you to manually type prompts and check results. The harness automates all of that. You write scenario YAML describing what to test and it handles the rest:
+Generate test scenarios from an existing skill, then run them:
 
 ```bash
-uv run skillprobe harness tests/my-skill.yaml --harness claude-code --model claude-haiku-4-5-20251001
+skillprobe init ./skills/my-skill --harness claude-code
+skillprobe run tests/my-skill.yaml
 ```
 
 ```
@@ -82,9 +65,9 @@ Running: tests/my-skill.yaml
   2/3 passed (27.8s)
 ```
 
-### Scenario format
+## Writing scenarios
 
-Each scenario can have multiple conversational steps, a workspace fixture that gets copied fresh for every run, setup commands that tweak the fixture before the test starts, and post-run assertions that check the state of the workspace after everything finishes:
+Scenarios are YAML files describing what to test. Each scenario can have multiple conversational steps, a workspace fixture that gets copied fresh for every run, setup commands, and post-run assertions that check workspace state after everything finishes:
 
 ```yaml
 harness: claude-code
@@ -116,107 +99,77 @@ scenarios:
             value: "commit"
 ```
 
-The harness supports `contains`, `not_contains`, `regex`, `skill_present`, `skill_loaded`, `tool_called`, `file_exists`, and `file_contains` assertions, and any of them can be inverted with `negate: true`.
+Supported assertion types: `contains`, `not_contains`, `regex`, `tool_called`, `file_exists`, and `file_contains`. Any assertion can be inverted with `negate: true`.
 
-For Claude Code, the harness runs a local proxy so you get full system prompt visibility and skill detection on top of the behavioral checks. Cursor routes its API calls through its own servers so theres no proxy capture there, but behavioral testing (checking what the model actually said and did) works the same way on both.
+## Generating tests
 
-### Generating tests
-
-You dont have to write scenario YAML from scratch. Point `init` at a skill directory and it reads the SKILL.md, uses the LLM to figure out what should be tested (positive activation, negative activation, behavioral correctness, edge cases), and writes a starter YAML file you can review and tweak:
+You don't have to write scenario YAML from scratch. Point `init` at a skill directory and it reads the SKILL.md, uses an LLM to figure out what should be tested (positive activation, negative activation, behavioral correctness, edge cases), and writes a starter YAML file you can review and tweak:
 
 ```bash
-uv run skillprobe init ./skills/commit --harness claude-code
+skillprobe init ./skills/commit --harness claude-code
 ```
 
-## Optimizing skills
-
-This part borrows from Karpathy's autoresearch idea. You tag your captures with session names, look at whats failing, apply mutations to the skill, and then compare before and after.
-
-```bash
-# run with your current skill and tag captures as v1
-skillprobe start --session v1 --watch skill-tests/my-skill.yaml
-# ... use your tool for a bit ...
-
-# see whats failing and get suggestions
-skillprobe analyze skill-tests/my-skill.yaml --session v1
-
-# apply one of the suggested mutations
-skillprobe optimize skills/clean-python.md --mutation add_constraint --test skill-tests/my-skill.yaml
-
-# run again with the updated skill, tag as v2
-skillprobe start --session v2 --watch skill-tests/my-skill.yaml
-# ... use your tool again ...
-
-# see what changed
-skillprobe diff skill-tests/my-skill.yaml --session v1 --session v2
-```
-
-```
-Test                                 v1          v2      Delta
-no docstrings                       80%         95%   +15% improved
-uses type hints                     90%         85%    -5% regressed
-```
-
-There are six mutation operators (add_constraint, add_negative_example, restructure, tighten_language, remove_bloat, add_counterexample) and you can revert if something makes things worse with `skillprobe optimize --revert`.
-
-## Activation testing
-
-Separate from whether a skill is being followed, theres also the question of whether it gets loaded at the right time. Skills arent always in context because tools like Claude Code and Cursor load them dynamically based on relevance. If your skill's description or keywords are off, it might not load when it should, or load when it shouldnt.
-
-Activation tests let you define when a skill should and shouldnt be present:
-
-```yaml
-activations:
-  - skill: sqlalchemy
-    should_load_when:
-      - "write a sqlalchemy model"
-      - "create a database migration"
-    should_not_load_when:
-      - "write a hello world in python"
-      - "what is recursion"
-```
-
-Then check against your captures:
-
-```bash
-skillprobe activation tests/test-activation.yaml --last 50
-```
-
-```
-  sqlalchemy:
-    [OK] "write a sqlalchemy model" -- correctly loaded
-    [OK] "create a database migration" -- correctly loaded
-    [OK] "write a hello world in python" -- correctly not loaded
-    [!!] "what is recursion" -- expected not loaded, was loaded
-```
-
-This isnt about testing Claude Code or Cursor's loading logic, its about making sure your skill file has the right description and content so the tool picks it up when it should.
+The `init` command supports both Anthropic and OpenAI as providers for test generation. Pass `--provider openai` and `--model gpt-4o` if you prefer, or it defaults to Anthropic with `claude-sonnet-4-6`. This requires an API key for whichever provider you choose (via `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`).
 
 ## Commands
 
-- `start` - run the proxy (`--watch`, `--session`, `--skills`)
-- `captures` - list whats been captured
-- `inspect <id>` - look at a specific capture in detail
-- `assert <test.yaml>` - check captures against assertions
-- `harness <test.yaml>` - run automated end-to-end skill tests (`--harness`, `--parallel`, `--model`)
-- `init <skill-dir>` - generate starter test YAML from a skill
-- `analyze <test.yaml>` - find failure patterns, suggest mutations
-- `optimize <skill.md>` - apply a mutation (backs up the original)
-- `diff <test.yaml>` - compare sessions
-- `test <test.yaml>` - run tests via direct API calls (needs API key)
-- `activation <test.yaml>` - check if skills load at the right time
-- `report` - aggregate stats
+**`skillprobe run <test.yaml>`** runs test scenarios against a real coding tool.
 
-## What gets captured
+| Flag | Default | Description |
+|---|---|---|
+| `--harness` | from YAML | `claude-code` or `cursor` |
+| `--model` | from YAML | Model to use for the tool under test |
+| `--parallel` | 1 | Number of scenarios to run concurrently |
+| `--timeout` | from YAML | Per-scenario timeout in seconds |
+| `--max-cost` | none | Max USD spend (Claude Code only) |
 
-The full API request including the system prompt with all injected skills, tool definitions, conversation messages, model name, and temperature settings. For streaming responses (which is what most tools use), skillprobe reassembles the SSE chunks into a complete response while still passing them through to your tool in real time so nothing breaks. Both Anthropic and OpenAI API formats are supported, and everything is stored in a local SQLite database.
+**`skillprobe init <skill-dir>`** generates starter test YAML from a skill definition.
 
-## Why not promptfoo or similar
+| Flag | Default | Description |
+|---|---|---|
+| `--harness` | `claude-code` | Target harness |
+| `--output` | `tests/<skill>.yaml` | Output YAML path |
+| `--provider` | `anthropic` | LLM provider for generation |
+| `--model` | auto | Model for generation |
+| `--fixtures-dir` | `fixtures` | Where to write fixture directories |
 
-Tools like promptfoo test prompts in isolation by making their own API calls. They dont see what Claude Code or Cursor actually sends to the API, they cant tell you which skills got loaded or if two skills are conflicting, and they all require API keys which doesnt work if you're on a subscription plan. skillprobe captures the real traffic from real tools so what you test is what actually happens in practice.
+## Using in CI
 
+skillprobe works well in CI for catching regressions when models update or skills change. The CI environment needs the target tool's CLI installed and authenticated, since skillprobe spawns it as a subprocess.
 
-## References:
+```yaml
+# .github/workflows/skill-tests.yml
+name: skill-tests
+
+on:
+  push:
+    paths: ["skills/**", "tests/**"]
+  schedule:
+    - cron: "0 6 * * 1"  # weekly Monday 6am
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: npm install -g @anthropic-ai/claude-code
+
+      - uses: astral-sh/setup-uv@v4
+
+      - run: uv tool install skillprobe
+
+      - run: skillprobe run tests/my-skill.yaml --harness claude-code
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+## Why not promptfoo
+
+Tools like promptfoo test prompts in isolation by making their own API calls, outside the tool that will actually use them. skillprobe runs the real tools as subprocesses in real workspaces, so it tests the full stack: skill loading, tool use, file system interactions, multi-turn conversations. It also works with subscriptions (no API key required for the tool under test, only for `init` if you use it).
+
+## References
+
 - https://github.com/karpathy/autoresearch
 - https://www.news.aakashg.com/p/autoresearch-guide-for-pms
 - https://fortune.com/2026/03/17/andrej-karpathy-loop-autonomous-ai-agents-future/

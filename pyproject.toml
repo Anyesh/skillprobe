@@ -1,8 +1,20 @@
 [project]
 name = "skillprobe"
-version = "0.2.0"
+version = "0.1.0"
 description = "Automated end-to-end skill testing for LLM coding tools"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
+authors = [{ name = "Anish Shrestha" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Testing",
+    "Intended Audience :: Developers",
+]
 dependencies = [
     "httpx>=0.27",
     "click>=8.1",
@@ -11,6 +23,11 @@ dependencies = [
 
 [project.scripts]
 skillprobe = "skillprobe.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Anyesh/skillprobe"
+Repository = "https://github.com/Anyesh/skillprobe"
+Issues = "https://github.com/Anyesh/skillprobe/issues"
 
 [build-system]
 requires = ["hatchling"]

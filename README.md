@@ -164,6 +164,12 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
+## Security considerations
+
+Scenario YAML files are executable content. The `setup` commands run as shell commands with your full user permissions, and the harness launches Claude Code or Cursor with `--dangerously-skip-permissions` (or Cursor's `--force`), giving the AI tool full autonomy within the workspace. This is necessary for automated testing, but it means you should treat test YAML files like shell scripts: review them before running, and don't execute YAML from untrusted sources.
+
+The workspaces themselves are temporary copies created fresh for each scenario and deleted after the run, so the tool under test operates in isolation rather than in your actual project directory. Assertion handlers that check file paths (`file_exists`, `file_contains`) also validate that paths don't escape the workspace boundary.
+
 ## Why not promptfoo
 
 Tools like promptfoo test prompts in isolation by making their own API calls, outside the tool that will actually use them. skillprobe runs the real tools as subprocesses in real workspaces, so it tests the full stack: skill loading, tool use, file system interactions, multi-turn conversations. It also works with subscriptions (no API key required for the tool under test, only for `init` if you use it).

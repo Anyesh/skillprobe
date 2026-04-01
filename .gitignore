@@ -25,3 +25,10 @@ docs/superpowers/
 # Harness workspace temp directories
 .skillprobe-workspaces/
 .skillprobe-harness-*.db
+
+# Environment and secrets
+.env
+.env.*
+
+# OS artifacts
+.DS_Store

@@ -168,8 +168,3 @@ jobs:
 
 Tools like promptfoo test prompts in isolation by making their own API calls, outside the tool that will actually use them. skillprobe runs the real tools as subprocesses in real workspaces, so it tests the full stack: skill loading, tool use, file system interactions, multi-turn conversations. It also works with subscriptions (no API key required for the tool under test, only for `init` if you use it).
 
-## References
-
-- https://github.com/karpathy/autoresearch
-- https://www.news.aakashg.com/p/autoresearch-guide-for-pms
-- https://fortune.com/2026/03/17/andrej-karpathy-loop-autonomous-ai-agents-future/

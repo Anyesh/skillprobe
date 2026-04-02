@@ -1,0 +1,13 @@
+harness: claude-code
+model: claude-haiku-4-5-20251001
+timeout: 60
+skill: ./examples/skills/clean-python.md
+
+activation:
+  skill_name: clean-python
+  should_activate:
+    - "Write a Python function that calculates factorial"
+    - "Add type hints to my python functions"
+  should_not_activate:
+    - "Explain what HTTP status code 404 means"
+    - "Write a hello world in javascript"

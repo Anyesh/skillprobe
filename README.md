@@ -152,6 +152,14 @@ skillprobe init ./skills/commit --harness claude-code
 | `--timeout` | from YAML | Per-scenario timeout in seconds |
 | `--max-cost` | none | Max USD spend (Claude Code only) |
 
+**`skillprobe activation <test.yaml>`** tests whether a skill loads for relevant prompts and stays quiet for irrelevant ones. Detects skill loading by checking for Skill tool calls in the CLI output rather than fuzzy matching response text.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--harness` | from YAML | `claude-code` or `cursor` |
+| `--model` | from YAML | Model to use |
+| `--timeout` | from YAML | Per-prompt timeout in seconds |
+
 **`skillprobe init <skill-dir>`** generates starter test YAML from a skill definition.
 
 | Flag | Default | Description |
@@ -189,7 +197,7 @@ jobs:
 
 ## Security
 
-Scenario YAML files are executable content. Setup commands run with your full user permissions, and the harness launches the AI tool with `--dangerously-skip-permissions` (or `--force` for Cursor). Treat test YAML files like shell scripts. Workspaces are temporary copies deleted after each run, and file path assertions validate against workspace boundary escapes.
+Scenario YAML files are executable content. Setup commands run with your full user permissions, and the harness launches the AI tool with `--dangerously-skip-permissions` (or `--force` for Cursor), giving it full filesystem access. The temporary workspace is the working directory for the subprocess, but the tool is not sandboxed to it and can read or modify files elsewhere on your system. Treat test YAML files like shell scripts and don't run YAML from untrusted sources. File path assertions (`file_exists`, `file_contains`) validate against workspace boundary escapes on the skillprobe side.
 
 ## Why not promptfoo
 

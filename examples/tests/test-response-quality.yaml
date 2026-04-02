@@ -1,28 +1,27 @@
-skill: null
-base_context: ""
-provider: anthropic
-model: claude-opus-4-6
+harness: claude-code
+model: claude-haiku-4-5-20251001
+timeout: 60
 
-tests:
-  - name: response is not empty
-    message: any
-    runs: 1
-    assert:
-      - type: regex
-        value: ".{10,}"
+scenarios:
+  - name: "response is not empty"
+    steps:
+      - prompt: "What is a Python list comprehension?"
+        assert:
+          - type: regex
+            value: ".{10,}"
 
-  - name: no hallucinated URLs
-    message: any
-    runs: 1
-    assert:
-      - type: not_contains
-        value: "https://example.com"
+  - name: "no hallucinated URLs"
+    steps:
+      - prompt: "How do I parse JSON in Python?"
+        assert:
+          - type: not_contains
+            value: "https://example.com"
 
-  - name: does not apologize unnecessarily
-    message: any
-    runs: 1
-    assert:
-      - type: not_contains
-        value: "I apologize"
-      - type: not_contains
-        value: "I'm sorry, but"
+  - name: "does not apologize unnecessarily"
+    steps:
+      - prompt: "Explain what a decorator is in Python."
+        assert:
+          - type: not_contains
+            value: "I apologize"
+          - type: not_contains
+            value: "I'm sorry, but"

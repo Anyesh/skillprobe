@@ -1,20 +1,32 @@
-activations:
-  - skill: clean-python
-    should_load_when:
-      - "write a python function"
-      - "refactor this python code"
-      - "create a python module"
-    should_not_load_when:
-      - "hello"
-      - "explain how HTTP works"
-      - "write a react component"
+harness: claude-code
+model: claude-haiku-4-5-20251001
+timeout: 60
+skill: ./examples/skills
 
-  - skill: sqlalchemy
-    should_load_when:
-      - "write a sqlalchemy model"
-      - "create a database migration"
-      - "define the ORM schema"
-    should_not_load_when:
-      - "write a hello world in python"
-      - "what is recursion"
-      - "parse this JSON file"
+scenarios:
+  - name: "clean-python activates for python code requests"
+    steps:
+      - prompt: "Write a Python function that calculates factorial. Only output code, no explanations."
+        assert:
+          - type: regex
+            value: "def \\w+\\("
+          - type: regex
+            value: "-> "
+
+  - name: "clean-python does not activate for greetings"
+    steps:
+      - prompt: "Hello, how are you?"
+        assert:
+          - type: not_contains
+            value: "def "
+          - type: not_contains
+            value: "import "
+
+  - name: "clean-python does not activate for non-python requests"
+    steps:
+      - prompt: "Write a React component that renders a button."
+        assert:
+          - type: not_contains
+            value: "def "
+          - type: not_contains
+            value: "import json"

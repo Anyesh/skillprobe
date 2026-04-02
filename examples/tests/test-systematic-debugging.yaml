@@ -1,41 +1,42 @@
-skill: ./skills/systematic-debugging.md
+harness: claude-code
+model: claude-haiku-4-5-20251001
+timeout: 60
+skill: ./examples/skills
 
-tests:
-  - name: read error message first
-    when:
-      - type: regex
-        value: "(error|failed|unexpected)"
-    assert:
-      - type: contains
-        value: "error"
+scenarios:
+  - name: "reads error message first"
+    steps:
+      - prompt: "This test is failing with 'AssertionError: expected 3 but got 5'. What should I do first?"
+        assert:
+          - type: contains
+            value: "error"
 
-  - name: traces execution with logging
-    when:
-      - type: regex
-        value: "(test|fail|bug)"
-    assert:
-      - type: contains
-        value: "print\\(|logger\\.|console\\.log"
+  - name: "suggests tracing execution"
+    steps:
+      - prompt: "My function returns the wrong value but I have no idea where the bug is. How should I approach this?"
+        assert:
+          - type: regex
+            value: "(?i)(trace|step through|debugger|breakpoint|log)"
 
-  - name: verifies assumptions
-    when:
-      - type: regex
-        value: "(debug|trace)"
-    assert:
-      - type: contains
-        value: "assert "
+  - name: "activates for debugging requests"
+    steps:
+      - prompt: "Help me debug this: my test is failing and I don't know why."
+        assert:
+          - type: regex
+            value: "(?i)(error|fail|debug|trace|root cause)"
 
-activations:
-  - skill: systematic-debugging
-    should_load_when:
-      - "test is failing"
-      - "this function returns the wrong value"
-      - "why is this throwing an error"
-      - "help me debug this"
-      - "find the bug"
-    should_not_load_when:
-      - "write a web server"
-      - "refactor this code"
-      - "explain how databases work"
-      - "how do I use this library"
-      - "code review"
+  - name: "does not activate for unrelated requests"
+    steps:
+      - prompt: "Write a web server in Python."
+        assert:
+          - type: not_contains
+            value: "root cause"
+          - type: not_contains
+            value: "breakpoint"
+
+  - name: "does not activate for code review"
+    steps:
+      - prompt: "Review this code for style issues."
+        assert:
+          - type: not_contains
+            value: "trace execution"

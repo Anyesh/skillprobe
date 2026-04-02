@@ -1,53 +1,43 @@
-skill: ./skills/simple-implementations.md
+harness: claude-code
+model: claude-haiku-4-5-20251001
+timeout: 60
+skill: ./examples/skills
 
-tests:
-  - name: avoids premature abstractions
-    when:
-      - type: regex
-        value: "(class|def) \\w*(Processor|Helper|Manager|Factory|Builder)"
-    assert:
-      - type: not_contains
-        value: "def process"
-      - type: not_contains
-        value: "def apply"
+scenarios:
+  - name: "avoids premature abstractions"
+    steps:
+      - prompt: "Write a Python function that validates an API request has an authorization header and an email in the body. Only output code, no explanations."
+        assert:
+          - type: not_contains
+            value: "class"
+          - type: contains
+            value: "def "
 
-  - name: direct validation without abstraction
-    when:
-      - type: regex
-        value: "(validate|check)_\\w+"
-    assert:
-      - type: contains
-        value: "if "
-      - type: not_contains
-        value: "Schema"
-      - type: not_contains
-        value: "Rule"
+  - name: "direct validation without abstraction layers"
+    steps:
+      - prompt: "Write a Python function that checks if a username is valid: at least 3 characters, alphanumeric only. Only output code, no explanations."
+        assert:
+          - type: contains
+            value: "if "
+          - type: not_contains
+            value: "Schema"
+          - type: not_contains
+            value: "Rule"
 
-  - name: avoids configuration classes for single use
-    when:
-      - type: regex
-        value: "class Config"
-    assert:
-      - type: contains
-        value: "# NOT for single use cases"
+  - name: "skill activates for simple implementation requests"
+    steps:
+      - prompt: "Write a simple API endpoint handler that returns user data. Only output code, no explanations."
+        assert:
+          - type: regex
+            value: "def \\w+\\("
+          - type: contains
+            value: "return"
 
-  - name: keeps code readable over DRY
-    when:
-      - type: regex
-        value: "def \\w+\\([^)]*\\):"
-    assert:
-      - type: not_contains
-        value: "getattr.*\\*\\*"
-      - type: not_contains
-        value: "setattr.*loop"
-
-activations:
-  - skill: simple-implementations
-    should_load_when:
-      - "write a simple api endpoint"
-      - "create a validation function"
-      - "build a helper utility"
-    should_not_load_when:
-      - "design a database schema"
-      - "architect a microservice"
-      - "explain design patterns"
+  - name: "does not activate for unrelated request"
+    steps:
+      - prompt: "Explain how HTTP works in one paragraph."
+        assert:
+          - type: not_contains
+            value: "def "
+          - type: contains
+            value: "HTTP"

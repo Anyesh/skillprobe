@@ -1,5 +1,7 @@
 # skillprobe
 
+![skillprobe demo](demo/skillprobe-demo.gif)
+
 AI coding tools like Claude Code and Cursor inject instructions into the LLM context behind the scenes, whether they call them skills, rules, or system prompts. There's no good way to test whether those instructions are actually being followed. You write a skill that says "never add docstrings" and half the time the model adds them anyway.
 
 skillprobe automates the testing. It launches Claude Code or Cursor as subprocesses, runs your test scenarios in real workspaces, checks the output against assertions, and reports what passed and what didn't, all from a single command with no manual prompting required.
@@ -42,27 +44,46 @@ uv sync
 
 ## Quick start
 
-Generate test scenarios from an existing skill, then run them:
+### Try the bundled examples
+
+The repo ships with example skills and test scenarios you can run immediately. Clone, install, and go:
+
+```bash
+git clone https://github.com/Anyesh/skillprobe.git
+cd skillprobe
+uv sync
+uv run skillprobe run examples/tests/test-clean-python.yaml
+```
+
+```
+Running: examples/tests/test-clean-python.yaml
+  Harness: claude-code
+  Model: claude-haiku-4-5-20251001
+  Scenarios: 5
+  Parallel: 1
+
+  [PASS] no docstrings on simple functions (11.6s $0.0204)
+  [PASS] imports at top level (7.2s $0.0199)
+  [PASS] no obvious comments (7.2s $0.0187)
+  [FAIL] uses type hints (6.8s $0.0191)
+         step 1: "Write a Python function that takes a list of integ"
+           Pattern 'def \w+\(.*:.*\)' did not match
+           Pattern '-> ' did not match
+  [PASS] skill does not block normal functionality (11.3s $0.0202)
+
+  4/5 passed (44.0s)
+  Total cost: $0.10
+```
+
+This requires Claude Code installed and authenticated. The other example files in `examples/tests/` cover activation testing, response quality, and debugging skill behavior.
+
+### Generate tests for your own skills
+
+Point `init` at a skill directory and it reads the skill definition, uses an LLM to figure out what should be tested, and writes a starter YAML file you can review and tweak:
 
 ```bash
 skillprobe init ./skills/my-skill --harness claude-code
 skillprobe run tests/my-skill.yaml
-```
-
-```
-Running: tests/my-skill.yaml
-  Harness: claude-code
-  Model: claude-haiku-4-5-20251001
-  Scenarios: 3
-  Parallel: 1
-
-  [PASS] commit skill activates on request (9.1s)
-  [PASS] multi-turn refinement (12.3s)
-  [FAIL] negative activation -- 'commit' found in response
-         step 1: "explain what this project does"
-           'commit' found in response
-
-  2/3 passed (27.8s)
 ```
 
 ## Writing scenarios

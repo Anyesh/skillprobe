@@ -1,58 +1,56 @@
-skill: ./examples/skills/clean-python.md
-base_context: "You are a Python coding assistant. Write only the code, no explanations."
-provider: anthropic
+harness: claude-code
 model: claude-haiku-4-5-20251001
+timeout: 60
+skill: ./examples/skills
 
-tests:
-  - name: no docstrings on simple functions
-    message: "Write a Python function that checks if a number is prime"
-    runs: 5
-    assert:
-      - type: regex
-        value: "def \\w+\\("
-      - type: not_contains
-        value: '"""'
-      - type: not_contains
-        value: "'''"
+scenarios:
+  - name: "no docstrings on simple functions"
+    steps:
+      - prompt: "Write a Python function that checks if a number is prime. Only output code, no explanations."
+        assert:
+          - type: regex
+            value: "def \\w+\\("
+          - type: not_contains
+            value: '"""'
+          - type: not_contains
+            value: "'''"
 
-  - name: imports at top
-    message: "Write a Python module with a function that reads a JSON file and returns parsed data, and another function that makes an HTTP GET request"
-    runs: 5
-    assert:
-      - type: regex
-        value: "^import |^from "
-      - type: not_contains
-        value: "from json import *"
-      - type: not_contains
-        value: "import *"
+  - name: "imports at top level"
+    steps:
+      - prompt: "Write a Python module with a function that reads a JSON file and returns parsed data, and another function that makes an HTTP GET request. Only output code, no explanations."
+        assert:
+          - type: regex
+            value: "\\nimport |\\nfrom "
+          - type: not_contains
+            value: "import *"
 
-  - name: no obvious comments
-    message: "Write a Python function that sorts a list of dictionaries by a given key"
-    runs: 5
-    assert:
-      - type: regex
-        value: "def \\w+\\("
-      - type: not_contains
-        value: "# Sort"
-      - type: not_contains
-        value: "# This function"
-      - type: not_contains
-        value: "# Returns"
+  - name: "no obvious comments"
+    steps:
+      - prompt: "Write a Python function that sorts a list of dictionaries by a given key. Only output code, no explanations."
+        assert:
+          - type: regex
+            value: "def \\w+\\("
+          - type: not_contains
+            value: "# Sort"
+          - type: not_contains
+            value: "# This function"
+          - type: not_contains
+            value: "# Returns"
 
-  - name: uses type hints
-    message: "Write a Python function that takes a list of integers and returns the two numbers that add up to a target sum"
-    runs: 5
-    assert:
-      - type: regex
-        value: "def \\w+\\(.*:.*\\)"
-      - type: regex
-        value: "-> "
+  - name: "uses type hints"
+    steps:
+      - prompt: "Write a Python function that takes a list of integers and returns the two numbers that add up to a target sum. Only output code, no explanations."
+        assert:
+          - type: regex
+            value: "def \\w+\\(.*:.*\\)"
+          - type: regex
+            value: "-> "
 
-  - name: skill does not block normal functionality
-    message: "Write a Python function that reverses a string"
-    runs: 5
-    assert:
-      - type: regex
-        value: "def \\w+\\("
-      - type: contains
-        value: "return"
+  - name: "skill does not block normal functionality"
+    steps:
+      - prompt: "Write a Python function that reverses a string. Only output code, no explanations."
+        assert:
+          - type: regex
+            value: "def \\w+\\("
+          - type: contains
+            value: "return"

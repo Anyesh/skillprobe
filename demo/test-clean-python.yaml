@@ -1,0 +1,32 @@
+harness: claude-code
+model: claude-haiku-4-5-20251001
+timeout: 60
+skill: ./examples/skills
+
+scenarios:
+  - name: "uses type hints on simple functions"
+    steps:
+      - prompt: "Write a Python function that checks if a number is prime. Only output code, nothing else."
+        assert:
+          - type: regex
+            value: "def \\w+\\(.*:.*\\)"
+          - type: regex
+            value: "-> bool"
+
+  - name: "no docstrings on utility functions"
+    steps:
+      - prompt: "Write a Python function that clamps a value between a min and max. Only output code, nothing else."
+        assert:
+          - type: regex
+            value: "def \\w+\\("
+          - type: not_contains
+            value: '"""'
+
+  - name: "does not activate for unrelated request"
+    steps:
+      - prompt: "Explain what HTTP status code 404 means in one sentence."
+        assert:
+          - type: not_contains
+            value: "def "
+          - type: contains
+            value: "not found"

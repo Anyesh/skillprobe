@@ -69,6 +69,26 @@ def _check_tool_called(value: str, evidence: StepEvidence) -> HarnessAssertionRe
     return HarnessAssertionResult("tool_called", called, details)
 
 
+def _check_skill_activated(
+    value: str, evidence: StepEvidence
+) -> HarnessAssertionResult:
+    for tc in evidence.tool_calls:
+        if tc.tool_name != "Skill":
+            continue
+        skill_arg = (tc.arguments or {}).get("skill", "")
+        if value.lower() in skill_arg.lower():
+            return HarnessAssertionResult(
+                "skill_activated",
+                True,
+                f"Skill '{value}' was loaded via Skill tool (matched '{skill_arg}')",
+            )
+    return HarnessAssertionResult(
+        "skill_activated",
+        False,
+        f"Skill '{value}' was not loaded (no matching Skill tool call)",
+    )
+
+
 def _check_file_exists(
     value: str, evidence: StepEvidence, workspace: Path | None
 ) -> HarnessAssertionResult:
@@ -115,6 +135,7 @@ _HANDLERS = {
     "not_contains": _check_not_contains,
     "regex": _check_regex,
     "tool_called": _check_tool_called,
+    "skill_activated": _check_skill_activated,
     "file_exists": _check_file_exists,
     "file_contains": _check_file_contains,
 }

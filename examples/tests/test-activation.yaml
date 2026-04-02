@@ -1,32 +1,15 @@
 harness: claude-code
 model: claude-haiku-4-5-20251001
 timeout: 60
-skill: ./examples/skills
+skill: ./examples/skills/clean-python.md
 
-scenarios:
-  - name: "clean-python activates for python code requests"
-    steps:
-      - prompt: "Write a Python function that calculates factorial. Only output code, no explanations."
-        assert:
-          - type: regex
-            value: "def \\w+\\("
-          - type: regex
-            value: "-> "
-
-  - name: "clean-python does not activate for greetings"
-    steps:
-      - prompt: "Hello, how are you?"
-        assert:
-          - type: not_contains
-            value: "def "
-          - type: not_contains
-            value: "import "
-
-  - name: "clean-python does not activate for non-python requests"
-    steps:
-      - prompt: "Write a React component that renders a button."
-        assert:
-          - type: not_contains
-            value: "def "
-          - type: not_contains
-            value: "import json"
+activation:
+  skill_name: clean-python
+  should_activate:
+    - "Write a Python function that calculates factorial"
+    - "Refactor this python code to be cleaner"
+    - "Add type hints to my python functions"
+  should_not_activate:
+    - "Hello, how are you?"
+    - "Write a React component that renders a button"
+    - "What is the capital of France?"

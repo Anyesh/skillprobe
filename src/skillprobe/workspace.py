@@ -28,10 +28,15 @@ class WorkspaceManager:
             workspace.mkdir(parents=True)
 
         if skill and skill.exists():
-            skill_name = skill.name
             skill_base = SKILL_PATHS.get(harness, SKILL_PATHS["claude-code"])
-            target = workspace / skill_base / skill_name
-            shutil.copytree(skill, target)
+            if skill.is_dir():
+                target = workspace / skill_base / skill.name
+                shutil.copytree(skill, target)
+            else:
+                skill_dir_name = skill.stem
+                target_dir = workspace / skill_base / skill_dir_name
+                target_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(skill, target_dir / "SKILL.md")
 
         return workspace
 

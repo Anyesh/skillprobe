@@ -114,6 +114,71 @@ class TestFileContains:
         assert result.passed is False
 
 
+class TestSkillActivated:
+    def test_passes_when_skill_tool_called(self):
+        evidence = make_evidence(
+            tool_calls=[
+                ToolCallEvent(
+                    tool_name="Skill", status="completed", arguments={"skill": "commit"}
+                ),
+            ]
+        )
+        result = check_harness_assertion(
+            {"type": "skill_activated", "value": "commit"}, evidence
+        )
+        assert result.passed is True
+
+    def test_fails_when_no_skill_call(self):
+        evidence = make_evidence(
+            tool_calls=[
+                ToolCallEvent(
+                    tool_name="Bash", status="completed", arguments={"command": "ls"}
+                ),
+            ]
+        )
+        result = check_harness_assertion(
+            {"type": "skill_activated", "value": "commit"}, evidence
+        )
+        assert result.passed is False
+
+    def test_partial_match_on_qualified_name(self):
+        evidence = make_evidence(
+            tool_calls=[
+                ToolCallEvent(
+                    tool_name="Skill",
+                    status="completed",
+                    arguments={"skill": "commit-commands:commit"},
+                ),
+            ]
+        )
+        result = check_harness_assertion(
+            {"type": "skill_activated", "value": "commit"}, evidence
+        )
+        assert result.passed is True
+
+    def test_wrong_skill_fails(self):
+        evidence = make_evidence(
+            tool_calls=[
+                ToolCallEvent(
+                    tool_name="Skill",
+                    status="completed",
+                    arguments={"skill": "clean-python"},
+                ),
+            ]
+        )
+        result = check_harness_assertion(
+            {"type": "skill_activated", "value": "commit"}, evidence
+        )
+        assert result.passed is False
+
+    def test_negate_skill_activated(self):
+        evidence = make_evidence(tool_calls=[])
+        result = check_harness_assertion(
+            {"type": "skill_activated", "value": "commit", "negate": True}, evidence
+        )
+        assert result.passed is True
+
+
 class TestNegate:
     def test_negate_inverts_contains(self):
         evidence = make_evidence(response_text="hello world")

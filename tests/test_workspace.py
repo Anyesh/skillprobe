@@ -62,6 +62,18 @@ class TestCreate:
         skill_installed = ws / ".cursor" / "skills" / "test-skill" / "SKILL.md"
         assert skill_installed.exists()
 
+    def test_installs_skill_from_single_file(self, manager, fixture_dir, tmp_path):
+        skill_file = tmp_path / "clean-python.md"
+        skill_file.write_text(
+            "---\nname: clean-python\ndescription: test\n---\nBe clean."
+        )
+        ws = manager.create(
+            fixture=fixture_dir, skill=skill_file, harness="claude-code"
+        )
+        skill_installed = ws / ".claude" / "skills" / "clean-python" / "SKILL.md"
+        assert skill_installed.exists()
+        assert "be clean" in skill_installed.read_text().lower()
+
     def test_creates_workspace_without_fixture(self, manager):
         ws = manager.create(fixture=None, skill=None, harness="claude-code")
         assert ws.exists()

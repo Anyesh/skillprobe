@@ -10,29 +10,95 @@ from skillprobe.adapters.claude_code import ClaudeCodeAdapter
 from skillprobe.adapters.cursor import CursorAdapter
 
 
-CLAUDE_JSON_SUCCESS = json.dumps(
-    {
-        "type": "result",
-        "subtype": "success",
-        "is_error": False,
-        "result": "I committed your changes with message: feat: add login",
-        "session_id": "abc-123-def",
-        "total_cost_usd": 0.015,
-        "duration_ms": 3200,
-        "num_turns": 2,
-    }
+CLAUDE_STREAM_SUCCESS = "\n".join(
+    [
+        json.dumps({"type": "system", "subtype": "init", "session_id": "abc-123-def"}),
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "I committed your changes with message: feat: add login",
+                        },
+                    ]
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "type": "result",
+                "subtype": "success",
+                "session_id": "abc-123-def",
+                "duration_ms": 3200,
+            }
+        ),
+    ]
 )
 
-CLAUDE_JSON_ERROR = json.dumps(
-    {
-        "type": "result",
-        "subtype": "success",
-        "is_error": True,
-        "result": "API error occurred",
-        "session_id": "err-456",
-        "total_cost_usd": 0.001,
-        "duration_ms": 500,
-    }
+CLAUDE_STREAM_WITH_SKILL = "\n".join(
+    [
+        json.dumps(
+            {"type": "system", "subtype": "init", "session_id": "skill-test-001"}
+        ),
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "name": "Skill",
+                            "input": {"skill": "commit"},
+                            "id": "toolu_1",
+                        },
+                    ]
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "type": "user",
+                "tool_use_result": {"success": True, "commandName": "commit"},
+            }
+        ),
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "I'll commit using conventional format.",
+                        },
+                    ]
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "type": "result",
+                "subtype": "success",
+                "session_id": "skill-test-001",
+                "duration_ms": 5000,
+            }
+        ),
+    ]
+)
+
+CLAUDE_STREAM_ERROR = "\n".join(
+    [
+        json.dumps({"type": "system", "subtype": "init", "session_id": "err-456"}),
+        json.dumps(
+            {
+                "type": "result",
+                "subtype": "error",
+                "session_id": "err-456",
+                "duration_ms": 500,
+            }
+        ),
+    ]
 )
 
 CURSOR_STREAM_EVENTS = "\n".join(
@@ -83,16 +149,17 @@ class TestClaudeCodeAdapter:
         supported = adapter.supported_assertions()
         assert "contains" in supported
         assert "tool_called" in supported
+        assert "skill_activated" in supported
         assert "file_exists" in supported
 
     @pytest.mark.asyncio
-    async def test_send_prompt_parses_json(self, tmp_path):
+    async def test_parses_stream_text(self, tmp_path):
         adapter = ClaudeCodeAdapter()
         adapter._config = HarnessConfig(harness="claude-code", model="sonnet")
 
         with patch(
             "asyncio.create_subprocess_exec",
-            return_value=make_completed_process(CLAUDE_JSON_SUCCESS),
+            return_value=make_completed_process(CLAUDE_STREAM_SUCCESS),
         ):
             evidence = await adapter.send_prompt("commit my changes", tmp_path, None)
 
@@ -101,38 +168,69 @@ class TestClaudeCodeAdapter:
             == "I committed your changes with message: feat: add login"
         )
         assert evidence.session_id == "abc-123-def"
-        assert evidence.cost_usd == 0.015
         assert evidence.duration_ms == 3200
-        assert evidence.is_error is False
         assert evidence.exit_code == 0
 
     @pytest.mark.asyncio
-    async def test_send_prompt_handles_error(self, tmp_path):
-        adapter = ClaudeCodeAdapter()
-        adapter._config = HarnessConfig(harness="claude-code")
-
-        with patch(
-            "asyncio.create_subprocess_exec",
-            return_value=make_completed_process(CLAUDE_JSON_ERROR),
-        ):
-            evidence = await adapter.send_prompt("bad request", tmp_path, None)
-
-        assert evidence.is_error is True
-        assert evidence.response_text == "API error occurred"
-
-    @pytest.mark.asyncio
-    async def test_send_prompt_with_resume(self, tmp_path):
+    async def test_parses_skill_tool_calls(self, tmp_path):
         adapter = ClaudeCodeAdapter()
         adapter._config = HarnessConfig(harness="claude-code", model="sonnet")
 
         with patch(
             "asyncio.create_subprocess_exec",
-            return_value=make_completed_process(CLAUDE_JSON_SUCCESS),
+            return_value=make_completed_process(CLAUDE_STREAM_WITH_SKILL),
+        ):
+            evidence = await adapter.send_prompt("commit my changes", tmp_path, None)
+
+        assert len(evidence.tool_calls) == 1
+        assert evidence.tool_calls[0].tool_name == "Skill"
+        assert evidence.tool_calls[0].arguments["skill"] == "commit"
+        assert evidence.tool_calls[0].status == "completed"
+        assert "conventional format" in evidence.response_text
+
+    @pytest.mark.asyncio
+    async def test_handles_error(self, tmp_path):
+        adapter = ClaudeCodeAdapter()
+        adapter._config = HarnessConfig(harness="claude-code")
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            return_value=make_completed_process(CLAUDE_STREAM_ERROR, returncode=1),
+        ):
+            evidence = await adapter.send_prompt("bad request", tmp_path, None)
+
+        assert evidence.is_error is True
+        assert evidence.session_id == "err-456"
+
+    @pytest.mark.asyncio
+    async def test_resume_flag(self, tmp_path):
+        adapter = ClaudeCodeAdapter()
+        adapter._config = HarnessConfig(harness="claude-code", model="sonnet")
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            return_value=make_completed_process(CLAUDE_STREAM_SUCCESS),
         ) as mock_exec:
             await adapter.send_prompt("follow up", tmp_path, "abc-123-def")
             args = mock_exec.call_args[0]
             assert "--resume" in args
             assert "abc-123-def" in args
+
+    @pytest.mark.asyncio
+    async def test_uses_stream_json_verbose(self, tmp_path):
+        adapter = ClaudeCodeAdapter()
+        adapter._config = HarnessConfig(harness="claude-code", model="sonnet")
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            return_value=make_completed_process(CLAUDE_STREAM_SUCCESS),
+        ) as mock_exec:
+            await adapter.send_prompt("test", tmp_path, None)
+            args = mock_exec.call_args[0]
+            assert "--output-format" in args
+            idx = list(args).index("--output-format")
+            assert args[idx + 1] == "stream-json"
+            assert "--verbose" in args
 
 
 class TestCursorAdapter:
@@ -142,11 +240,10 @@ class TestCursorAdapter:
         assert "contains" in supported
         assert "tool_called" in supported
         assert "file_exists" in supported
-        assert "skill_loaded" not in supported
-        assert "skill_present" not in supported
+        assert "skill_activated" not in supported
 
     @pytest.mark.asyncio
-    async def test_send_prompt_parses_stream(self, tmp_path):
+    async def test_parses_stream(self, tmp_path):
         adapter = CursorAdapter()
         adapter._config = HarnessConfig(harness="cursor", model="sonnet-4")
 
@@ -164,7 +261,7 @@ class TestCursorAdapter:
         assert evidence.tool_calls[0].tool_name == "shell"
 
     @pytest.mark.asyncio
-    async def test_send_prompt_with_workspace(self, tmp_path):
+    async def test_workspace_flag(self, tmp_path):
         adapter = CursorAdapter()
         adapter._config = HarnessConfig(harness="cursor", model="sonnet-4")
 

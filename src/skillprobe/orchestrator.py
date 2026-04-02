@@ -50,6 +50,19 @@ class ScenarioOrchestrator:
             all_passed = True
 
             for i, step in enumerate(scenario.steps):
+                if step.runs > 1:
+                    step_result = await self._run_multi(
+                        step,
+                        i,
+                        workspace,
+                        session_id,
+                        step_costs,
+                    )
+                    if not step_result.meets_threshold:
+                        all_passed = False
+                    step_results.append(step_result)
+                    continue
+
                 try:
                     evidence = await self._adapter.send_prompt(
                         step.prompt, workspace, session_id
@@ -133,3 +146,54 @@ class ScenarioOrchestrator:
 
         finally:
             self._workspace_mgr.cleanup(workspace)
+
+    async def _run_multi(
+        self,
+        step: "ScenarioStep",
+        step_index: int,
+        workspace: Path,
+        session_id: str | None,
+        step_costs: list[float],
+    ) -> StepResult:
+        from skillprobe.loader import ScenarioStep
+
+        supported = self._adapter.supported_assertions()
+        passed_runs = 0
+        skipped = 0
+        last_assertion_results = []
+
+        for _ in range(step.runs):
+            try:
+                evidence = await self._adapter.send_prompt(
+                    step.prompt, workspace, session_id
+                )
+            except Exception:
+                continue
+
+            if evidence.cost_usd is not None:
+                step_costs.append(evidence.cost_usd)
+
+            run_assertions = []
+            for assertion in step.assertions:
+                atype = assertion.get("type", "")
+                if atype not in supported:
+                    skipped = 1
+                    continue
+                result = check_harness_assertion(
+                    assertion, evidence, workspace=workspace
+                )
+                run_assertions.append(result)
+
+            if all(r.passed for r in run_assertions):
+                passed_runs += 1
+            last_assertion_results = run_assertions
+
+        return StepResult(
+            step_index=step_index,
+            prompt=step.prompt,
+            assertions=last_assertion_results,
+            skipped_assertions=skipped,
+            total_runs=step.runs,
+            passed_runs=passed_runs,
+            min_pass_rate=step.min_pass_rate,
+        )

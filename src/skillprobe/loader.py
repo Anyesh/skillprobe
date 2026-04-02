@@ -9,6 +9,8 @@ import yaml
 class ScenarioStep:
     prompt: str
     assertions: list[dict[str, Any]]
+    runs: int = 1
+    min_pass_rate: float = 1.0
 
 
 @dataclass
@@ -44,6 +46,8 @@ def load_scenario_suite(path: Path) -> ScenarioSuite:
                 ScenarioStep(
                     prompt=step["prompt"],
                     assertions=step.get("assert", []),
+                    runs=step.get("runs", 1),
+                    min_pass_rate=step.get("min_pass_rate", 1.0),
                 )
             )
         scenarios.append(

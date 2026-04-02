@@ -128,3 +128,24 @@ scenarios:
         assert suite.model is None
         assert suite.timeout == 120
         assert suite.skill is None
+        assert suite.scenarios[0].steps[0].runs == 1
+        assert suite.scenarios[0].steps[0].min_pass_rate == 1.0
+
+    def test_parses_runs_and_min_pass_rate(self, tmp_path):
+        content = """
+scenarios:
+  - name: "multi-run"
+    steps:
+      - prompt: "test"
+        runs: 5
+        min_pass_rate: 0.8
+        assert:
+          - type: contains
+            value: "hello"
+"""
+        f = tmp_path / "multi.yaml"
+        f.write_text(content)
+        suite = load_scenario_suite(f)
+        step = suite.scenarios[0].steps[0]
+        assert step.runs == 5
+        assert step.min_pass_rate == 0.8

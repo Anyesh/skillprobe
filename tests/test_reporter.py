@@ -105,3 +105,57 @@ class TestFormatHarnessResults:
         output = format_harness_results(results)
         assert "ERROR" in output
         assert "Timeout" in output
+
+    def test_multi_run_pass_rate_shown(self):
+        results = [
+            ScenarioResult(
+                scenario_name="probabilistic test",
+                steps=[
+                    StepResult(
+                        step_index=0,
+                        prompt="test",
+                        assertions=[HarnessAssertionResult("contains", True, "ok")],
+                        skipped_assertions=0,
+                        total_runs=5,
+                        passed_runs=4,
+                        min_pass_rate=0.8,
+                    ),
+                ],
+                after_assertions=[],
+                passed=True,
+                duration_ms=5000.0,
+                cost_usd=None,
+                error=None,
+            ),
+        ]
+        output = format_harness_results(results)
+        assert "4/5 passed" in output
+        assert "80%" in output
+        assert "PASS" in output
+
+    def test_multi_run_below_threshold_shows_partial(self):
+        results = [
+            ScenarioResult(
+                scenario_name="flaky skill",
+                steps=[
+                    StepResult(
+                        step_index=0,
+                        prompt="test",
+                        assertions=[HarnessAssertionResult("contains", False, "nope")],
+                        skipped_assertions=0,
+                        total_runs=5,
+                        passed_runs=2,
+                        min_pass_rate=0.8,
+                    ),
+                ],
+                after_assertions=[],
+                passed=False,
+                duration_ms=5000.0,
+                cost_usd=None,
+                error=None,
+            ),
+        ]
+        output = format_harness_results(results)
+        assert "PARTIAL" in output
+        assert "2/5 passed" in output
+        assert "needed 80%" in output

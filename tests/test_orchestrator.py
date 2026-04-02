@@ -289,3 +289,100 @@ class TestOrchestrator:
         )
         results = await orchestrator.run(suite)
         assert len(results) == 2
+
+    @pytest.mark.asyncio
+    async def test_multi_run_all_pass(self, tmp_path):
+        adapter = FakeAdapter(["I committed your changes"])
+        config = HarnessConfig(harness="claude-code")
+        suite = make_suite(
+            [
+                Scenario(
+                    name="multi-run pass",
+                    workspace=None,
+                    setup=[],
+                    steps=[
+                        ScenarioStep(
+                            prompt="commit",
+                            assertions=[{"type": "contains", "value": "committed"}],
+                            runs=3,
+                            min_pass_rate=1.0,
+                        ),
+                    ],
+                    after=[],
+                    timeout=None,
+                ),
+            ]
+        )
+        orchestrator = ScenarioOrchestrator(
+            adapter=adapter, config=config, work_dir=tmp_path
+        )
+        results = await orchestrator.run(suite)
+        assert results[0].passed is True
+        assert results[0].steps[0].total_runs == 3
+        assert results[0].steps[0].passed_runs == 3
+        assert results[0].steps[0].pass_rate == 1.0
+
+    @pytest.mark.asyncio
+    async def test_multi_run_partial_pass_meets_threshold(self, tmp_path):
+        adapter = FakeAdapter(
+            ["I committed your changes", "hello world", "I committed again"]
+        )
+        config = HarnessConfig(harness="claude-code")
+        suite = make_suite(
+            [
+                Scenario(
+                    name="partial ok",
+                    workspace=None,
+                    setup=[],
+                    steps=[
+                        ScenarioStep(
+                            prompt="commit",
+                            assertions=[{"type": "contains", "value": "committed"}],
+                            runs=3,
+                            min_pass_rate=0.6,
+                        ),
+                    ],
+                    after=[],
+                    timeout=None,
+                ),
+            ]
+        )
+        orchestrator = ScenarioOrchestrator(
+            adapter=adapter, config=config, work_dir=tmp_path
+        )
+        results = await orchestrator.run(suite)
+        assert results[0].passed is True
+        assert results[0].steps[0].passed_runs == 2
+        assert results[0].steps[0].total_runs == 3
+        assert results[0].steps[0].meets_threshold is True
+
+    @pytest.mark.asyncio
+    async def test_multi_run_below_threshold_fails(self, tmp_path):
+        adapter = FakeAdapter(["hello world", "hello world", "I committed"])
+        config = HarnessConfig(harness="claude-code")
+        suite = make_suite(
+            [
+                Scenario(
+                    name="below threshold",
+                    workspace=None,
+                    setup=[],
+                    steps=[
+                        ScenarioStep(
+                            prompt="commit",
+                            assertions=[{"type": "contains", "value": "committed"}],
+                            runs=3,
+                            min_pass_rate=0.8,
+                        ),
+                    ],
+                    after=[],
+                    timeout=None,
+                ),
+            ]
+        )
+        orchestrator = ScenarioOrchestrator(
+            adapter=adapter, config=config, work_dir=tmp_path
+        )
+        results = await orchestrator.run(suite)
+        assert results[0].passed is False
+        assert results[0].steps[0].passed_runs == 1
+        assert results[0].steps[0].meets_threshold is False

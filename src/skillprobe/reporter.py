@@ -9,6 +9,19 @@ class StepResult:
     prompt: str
     assertions: list[HarnessAssertionResult]
     skipped_assertions: int
+    total_runs: int = 1
+    passed_runs: int = 1
+    min_pass_rate: float = 1.0
+
+    @property
+    def pass_rate(self) -> float:
+        if self.total_runs == 0:
+            return 0.0
+        return self.passed_runs / self.total_runs
+
+    @property
+    def meets_threshold(self) -> bool:
+        return self.pass_rate >= self.min_pass_rate
 
 
 @dataclass
@@ -43,19 +56,35 @@ def format_harness_results(results: list[ScenarioResult]) -> str:
             total_fail += 1
             continue
 
-        icon = "PASS" if r.passed else "FAIL"
+        if r.passed:
+            icon = "PASS"
+            total_pass += 1
+        else:
+            has_partial = any(
+                s.total_runs > 1 and s.passed_runs > 0 and not s.meets_threshold
+                for s in r.steps
+            )
+            icon = "PARTIAL" if has_partial else "FAIL"
+            total_fail += 1
+
         dur = f"{r.duration_ms / 1000:.1f}s"
         cost_str = f" ${r.cost_usd:.4f}" if r.cost_usd is not None else ""
         lines.append(f"  [{icon}] {r.scenario_name} ({dur}{cost_str})")
 
-        if r.passed:
-            total_pass += 1
-        else:
-            total_fail += 1
-
         for step in r.steps:
+            if step.total_runs > 1:
+                rate_str = f"{step.passed_runs}/{step.total_runs} passed ({step.pass_rate:.0%})"
+                threshold_str = (
+                    f", needed {step.min_pass_rate:.0%}"
+                    if not step.meets_threshold
+                    else ""
+                )
+                step_icon = "ok" if step.meets_threshold else "!!"
+                lines.append(
+                    f"         step {step.step_index + 1}: [{step_icon}] {rate_str}{threshold_str}"
+                )
             failed = [a for a in step.assertions if not a.passed]
-            if failed:
+            if failed and step.total_runs == 1:
                 lines.append(
                     f'         step {step.step_index + 1}: "{step.prompt[:50]}"'
                 )

@@ -2,9 +2,11 @@
 
 ![skillprobe demo](demo/skillprobe-demo.gif)
 
-AI coding tools like Claude Code and Cursor inject instructions into the LLM context behind the scenes, whether they call them skills, rules, or system prompts. There's no good way to test whether those instructions are actually being followed. You write a skill that says "never add docstrings" and half the time the model adds them anyway.
+Skills are just text injected into the LLM context. They're not code, they're not contracts, they're prompts, and LLMs are probabilistic. A skill that says "never add docstrings" will get ignored some percentage of the time no matter how carefully you word it. That's not a bug in your skill, that's the nature of the medium.
 
-skillprobe automates the testing. It launches Claude Code or Cursor as subprocesses, runs your test scenarios in real workspaces, checks the output against assertions, and reports what passed and what didn't, all from a single command with no manual prompting required.
+If you want hard enforcement, hooks are the answer. Both Claude Code and Cursor support deterministic hooks that run before or after agent actions, and those will reliably block or rewrite things every single time. But hooks operate on patterns and rules. They can reject a file that contains a docstring, or block a shell command that looks dangerous, but they cant guide the model toward better architectural decisions, teach it your team's domain conventions, set the tone of code review feedback, or help it reason through a multi-step workflow. That's what skills are for: the judgment calls, the taste, the context that cant be reduced to a regex or a linter rule.
+
+The problem is that since skills are probabilistic, you need to actually measure how reliably they work. skillprobe automates that. It launches Claude Code or Cursor as subprocesses, runs your test scenarios in real workspaces, checks the output against assertions, and reports what passed and what didnt, all from a single command with no manual prompting required.
 
 ## Who this is for (and who it isn't)
 

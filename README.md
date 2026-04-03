@@ -111,7 +111,7 @@ scenarios:
             value: "commit"
 ```
 
-Assertion types: `contains`, `not_contains`, `regex`, `tool_called`, `file_exists`, `file_contains`. Any assertion can be inverted with `negate: true`.
+Assertion types: `contains`, `not_contains`, `regex`, `tool_called`, `skill_activated`, `file_exists`, `file_contains`. Any assertion can be inverted with `negate: true`.
 
 ### Multi-run for measuring reliability
 

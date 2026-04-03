@@ -1,6 +1,6 @@
 [project]
 name = "skillprobe"
-version = "0.3.0"
+version = "0.4.0"
 description = "Automated end-to-end skill testing for LLM coding tools"
 readme = "README.md"
 license = "MIT"

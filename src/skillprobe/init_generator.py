@@ -68,10 +68,17 @@ async def generate_test_scaffold(
         skill_content=skill_content,
     )
 
-    if provider == "openai":
-        yaml_text = await _call_openai(prompt, model, openai_api_key, base_url)
-    else:
-        yaml_text = await _call_anthropic(prompt, model, anthropic_api_key, base_url)
+    try:
+        if provider == "openai":
+            yaml_text = await _call_openai(prompt, model, openai_api_key, base_url)
+        else:
+            yaml_text = await _call_anthropic(
+                prompt, model, anthropic_api_key, base_url
+            )
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 401:
+            return f"Authentication failed. Set {'OPENAI_API_KEY' if provider == 'openai' else 'ANTHROPIC_API_KEY'} or pass --{'openai' if provider == 'openai' else 'anthropic'}-key."
+        return f"API error: {e.response.status_code} {e.response.text[:200]}"
 
     yaml_text = yaml_text.strip()
     if yaml_text.startswith("```"):
@@ -162,7 +169,7 @@ async def _call_openai(
 
 
 def _find_skill_md(skill_path: Path) -> Path | None:
-    if skill_path.is_file() and skill_path.name == "SKILL.md":
+    if skill_path.is_file() and skill_path.suffix == ".md":
         return skill_path
     if skill_path.is_dir():
         candidate = skill_path / "SKILL.md"

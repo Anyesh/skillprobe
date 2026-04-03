@@ -71,7 +71,6 @@ class ClaudeCodeAdapter:
             "--output-format",
             "stream-json",
             "--verbose",
-            "--no-session-persistence",
             "--dangerously-skip-permissions",
         ]
         if self._config and self._config.model:

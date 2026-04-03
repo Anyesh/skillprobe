@@ -108,27 +108,108 @@ CURSOR_STREAM_EVENTS = "\n".join(
                 "type": "system",
                 "subtype": "init",
                 "session_id": "cur-789",
-                "model": "sonnet-4",
+                "model": "Auto",
+                "cwd": "/tmp/test",
             }
         ),
-        json.dumps({"type": "assistant", "message": "I'll commit your changes now."}),
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "I'll read the file first."}],
+                },
+            }
+        ),
         json.dumps(
             {
                 "type": "tool_call",
                 "subtype": "started",
-                "tool": "shell",
-                "arguments": {"command": "git commit"},
+                "call_id": "call_1",
+                "tool_call": {"readToolCall": {"args": {"path": "/tmp/test/main.py"}}},
             }
         ),
-        json.dumps({"type": "tool_call", "subtype": "completed", "tool": "shell"}),
-        json.dumps({"type": "assistant", "message": " Done!"}),
+        json.dumps(
+            {
+                "type": "tool_call",
+                "subtype": "completed",
+                "call_id": "call_1",
+                "tool_call": {
+                    "readToolCall": {
+                        "args": {"path": "/tmp/test/main.py"},
+                        "result": {"success": {"content": "x = 1"}},
+                    }
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": " Done!"}],
+                },
+            }
+        ),
         json.dumps(
             {
                 "type": "result",
                 "subtype": "success",
-                "result": "I'll commit your changes now. Done!",
                 "duration_ms": 2500,
                 "session_id": "cur-789",
+                "is_error": False,
+            }
+        ),
+    ]
+)
+
+CURSOR_STREAM_WITH_SKILL = "\n".join(
+    [
+        json.dumps(
+            {"type": "system", "subtype": "init", "session_id": "cur-skill-001"}
+        ),
+        json.dumps(
+            {
+                "type": "tool_call",
+                "subtype": "started",
+                "call_id": "call_sk1",
+                "tool_call": {
+                    "readToolCall": {
+                        "args": {"path": "/tmp/ws/.cursor/skills/test-skill/SKILL.md"}
+                    }
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "type": "tool_call",
+                "subtype": "completed",
+                "call_id": "call_sk1",
+                "tool_call": {
+                    "readToolCall": {
+                        "args": {"path": "/tmp/ws/.cursor/skills/test-skill/SKILL.md"},
+                        "result": {"success": {"content": "skill content"}},
+                    }
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "Following the skill instructions."}
+                    ],
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "type": "result",
+                "subtype": "success",
+                "duration_ms": 3000,
+                "session_id": "cur-skill-001",
             }
         ),
     ]
@@ -239,31 +320,60 @@ class TestCursorAdapter:
         supported = adapter.supported_assertions()
         assert "contains" in supported
         assert "tool_called" in supported
+        assert "skill_activated" in supported
         assert "file_exists" in supported
-        assert "skill_activated" not in supported
 
     @pytest.mark.asyncio
-    async def test_parses_stream(self, tmp_path):
+    async def test_parses_stream_text(self, tmp_path):
         adapter = CursorAdapter()
-        adapter._config = HarnessConfig(harness="cursor", model="sonnet-4")
+        adapter._config = HarnessConfig(harness="cursor", model="auto")
 
         with patch(
             "asyncio.create_subprocess_exec",
             return_value=make_completed_process(CURSOR_STREAM_EVENTS),
         ):
-            evidence = await adapter.send_prompt("commit my changes", tmp_path, None)
+            evidence = await adapter.send_prompt("read the file", tmp_path, None)
 
-        assert "commit your changes" in evidence.response_text
+        assert "read the file first" in evidence.response_text
         assert "Done!" in evidence.response_text
         assert evidence.session_id == "cur-789"
         assert evidence.duration_ms == 2500
+
+    @pytest.mark.asyncio
+    async def test_parses_tool_calls(self, tmp_path):
+        adapter = CursorAdapter()
+        adapter._config = HarnessConfig(harness="cursor", model="auto")
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            return_value=make_completed_process(CURSOR_STREAM_EVENTS),
+        ):
+            evidence = await adapter.send_prompt("read the file", tmp_path, None)
+
         assert len(evidence.tool_calls) == 1
-        assert evidence.tool_calls[0].tool_name == "shell"
+        assert evidence.tool_calls[0].tool_name == "Read"
+        assert evidence.tool_calls[0].status == "completed"
+
+    @pytest.mark.asyncio
+    async def test_detects_skill_loading(self, tmp_path):
+        adapter = CursorAdapter()
+        adapter._config = HarnessConfig(harness="cursor", model="auto")
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            return_value=make_completed_process(CURSOR_STREAM_WITH_SKILL),
+        ):
+            evidence = await adapter.send_prompt("test", tmp_path, None)
+
+        skill_calls = [tc for tc in evidence.tool_calls if tc.tool_name == "Skill"]
+        assert len(skill_calls) == 1
+        assert skill_calls[0].arguments["skill"] == "test-skill"
+        assert skill_calls[0].status == "completed"
 
     @pytest.mark.asyncio
     async def test_workspace_flag(self, tmp_path):
         adapter = CursorAdapter()
-        adapter._config = HarnessConfig(harness="cursor", model="sonnet-4")
+        adapter._config = HarnessConfig(harness="cursor", model="auto")
 
         with patch(
             "asyncio.create_subprocess_exec",

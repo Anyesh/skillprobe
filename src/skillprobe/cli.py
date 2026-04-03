@@ -1,4 +1,5 @@
 import asyncio
+import tempfile
 from pathlib import Path
 
 import click
@@ -68,7 +69,7 @@ def run(
     orchestrator = ScenarioOrchestrator(
         adapter=adapter,
         config=config,
-        work_dir=Path(".skillprobe-workspaces"),
+        work_dir=Path(tempfile.gettempdir()) / "skillprobe-workspaces",
     )
     results = asyncio.run(orchestrator.run(suite))
     click.echo(format_harness_results(results))
@@ -113,7 +114,7 @@ def activation(
             suite,
             adapter,
             config,
-            Path(".skillprobe-workspaces"),
+            Path(tempfile.gettempdir()) / "skillprobe-workspaces",
         )
     )
     click.echo(format_activation_results(results, skill_name))

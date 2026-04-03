@@ -5,6 +5,16 @@ from pathlib import Path
 from skillprobe.adapters.base import HarnessConfig
 from skillprobe.evidence import StepEvidence, ToolCallEvent
 
+TOOL_CALL_KEYS = {
+    "readToolCall": "Read",
+    "shellToolCall": "Bash",
+    "editToolCall": "Edit",
+    "writeToolCall": "Write",
+    "listToolCall": "LS",
+    "searchToolCall": "Grep",
+    "globToolCall": "Glob",
+}
+
 
 class CursorAdapter:
     def __init__(self):
@@ -53,6 +63,7 @@ class CursorAdapter:
             "not_contains",
             "regex",
             "tool_called",
+            "skill_activated",
             "file_exists",
             "file_contains",
         }
@@ -87,6 +98,8 @@ class CursorAdapter:
         tool_calls = []
         session_id = None
         duration_ms = 0.0
+        is_error = False
+        call_id_to_index = {}
 
         for line in raw_output.strip().split("\n"):
             if not line.strip():
@@ -102,31 +115,44 @@ class CursorAdapter:
                 session_id = event.get("session_id", session_id)
 
             elif etype == "assistant":
-                msg = event.get("message", "")
-                if msg:
-                    text_parts.append(msg)
+                msg = event.get("message", {})
+                for block in msg.get("content", []):
+                    if block.get("type") == "text" and block.get("text"):
+                        text_parts.append(block["text"])
 
             elif etype == "tool_call":
+                call_id = event.get("call_id", "")
+                tool_call_data = event.get("tool_call", {})
+                tool_name, args = self._extract_tool_info(tool_call_data)
+
                 if event.get("subtype") == "started":
-                    tool_calls.append(
-                        ToolCallEvent(
-                            tool_name=event.get("tool", "unknown"),
-                            status="started",
-                            arguments=event.get("arguments"),
+                    if self._is_skill_read(tool_name, args):
+                        tool_calls.append(
+                            ToolCallEvent(
+                                tool_name="Skill",
+                                status="started",
+                                arguments={"skill": self._extract_skill_name(args)},
+                            )
                         )
-                    )
+                    else:
+                        tool_calls.append(
+                            ToolCallEvent(
+                                tool_name=tool_name,
+                                status="started",
+                                arguments=args,
+                            )
+                        )
+                    call_id_to_index[call_id] = len(tool_calls) - 1
+
                 elif event.get("subtype") == "completed":
-                    for tc in reversed(tool_calls):
-                        if (
-                            tc.tool_name == event.get("tool", "")
-                            and tc.status == "started"
-                        ):
-                            tc.status = "completed"
-                            break
+                    idx = call_id_to_index.get(call_id)
+                    if idx is not None and idx < len(tool_calls):
+                        tool_calls[idx].status = "completed"
 
             elif etype == "result":
                 session_id = event.get("session_id", session_id)
                 duration_ms = event.get("duration_ms", duration_ms)
+                is_error = event.get("is_error", is_error)
 
         return StepEvidence(
             response_text="".join(text_parts),
@@ -135,7 +161,32 @@ class CursorAdapter:
             duration_ms=duration_ms,
             cost_usd=None,
             exit_code=returncode,
-            is_error=returncode != 0,
+            is_error=is_error or returncode != 0,
             raw_output=raw_output,
             capture_id=None,
         )
+
+    def _extract_tool_info(self, tool_call_data: dict) -> tuple[str, dict | None]:
+        for key, display_name in TOOL_CALL_KEYS.items():
+            if key in tool_call_data:
+                return display_name, tool_call_data[key].get("args")
+        first_key = next(iter(tool_call_data), None)
+        if first_key:
+            return first_key, tool_call_data[first_key].get("args")
+        return "unknown", None
+
+    def _is_skill_read(self, tool_name: str, args: dict | None) -> bool:
+        if tool_name != "Read" or not args:
+            return False
+        path = args.get("path", "")
+        return path.endswith("SKILL.md")
+
+    def _extract_skill_name(self, args: dict | None) -> str:
+        if not args:
+            return "unknown"
+        path = args.get("path", "")
+        parts = Path(path).parts
+        for i, part in enumerate(parts):
+            if part == "skills" and i + 1 < len(parts):
+                return parts[i + 1]
+        return Path(path).parent.name

@@ -1,0 +1,45 @@
+harness: claude-code
+model: claude-sonnet-4-6
+timeout: 120
+skill: ./examples/skills/bad-python
+
+scenarios:
+  - name: "should add docstrings (bad practice the skill demands)"
+    steps:
+      - prompt: "Write a Python function that reverses a string. Just the code."
+        runs: 3
+        min_pass_rate: 0.6
+        assert:
+          - type: contains
+            value: '"""'
+
+  - name: "should use single-char variables (bad practice the skill demands)"
+    steps:
+      - prompt: "Write a Python function that calculates the area of a rectangle. Just the code."
+        runs: 3
+        min_pass_rate: 0.6
+        assert:
+          - type: regex
+            value: "def \\w+\\([a-z], [a-z]\\)"
+
+  - name: "should NOT use type hints (bad practice the skill demands)"
+    steps:
+      - prompt: "Write a Python function that adds two numbers. Just the code."
+        runs: 3
+        min_pass_rate: 0.6
+        assert:
+          - type: not_contains
+            value: "-> "
+          - type: not_contains
+            value: ": int"
+          - type: not_contains
+            value: ": float"
+
+  - name: "should use star imports (bad practice the skill demands)"
+    steps:
+      - prompt: "Write a Python module that uses the os and sys modules to list files. Just the code."
+        runs: 3
+        min_pass_rate: 0.6
+        assert:
+          - type: regex
+            value: "from \\w+ import \\*"

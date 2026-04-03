@@ -106,7 +106,14 @@ class ClaudeCodeAdapter:
 
             elif etype == "assistant":
                 msg = event.get("message", {})
-                for block in msg.get("content", []):
+                if not isinstance(msg, dict):
+                    continue
+                content = msg.get("content", [])
+                if not isinstance(content, list):
+                    continue
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
                     if block.get("type") == "text":
                         text_parts.append(block["text"])
                     elif block.get("type") == "tool_use":
@@ -120,7 +127,7 @@ class ClaudeCodeAdapter:
 
             elif etype == "user":
                 tool_result = event.get("tool_use_result")
-                if tool_result:
+                if isinstance(tool_result, dict):
                     command_name = tool_result.get("commandName", "")
                     for tc in reversed(tool_calls):
                         if tc.status == "started":

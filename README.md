@@ -70,12 +70,7 @@ Running: examples/tests/test-clean-python.yaml
 
 Requires Claude Code or Cursor CLI installed and authenticated.
 
-To generate tests for your own skill instead of writing YAML from scratch:
-
-```bash
-skillprobe init ./skills/my-skill --harness claude-code
-skillprobe run tests/my-skill.yaml
-```
+To generate tests for your own skill, use the bundled `write-tests` skill. Open Claude Code or Cursor in the skillprobe repo and ask it to write tests for your skill. It knows the YAML format and will generate both behavioral and activation test files. No API key needed since it runs through your existing subscription.
 
 ## Writing scenarios
 
@@ -132,14 +127,6 @@ steps:
          step 1: [ok] 4/5 passed (80%)
 ```
 
-## Generating tests
-
-`init` reads your SKILL.md, uses an LLM to generate test scenarios (positive activation, negative activation, behavioral correctness, edge cases), and writes a YAML file to review and tweak. Supports both Anthropic and OpenAI as the generation provider via `--provider`.
-
-```bash
-skillprobe init ./skills/commit --harness claude-code
-```
-
 ## Commands
 
 **`skillprobe run <test.yaml>`** runs test scenarios against a real coding tool.
@@ -159,16 +146,6 @@ skillprobe init ./skills/commit --harness claude-code
 | `--harness` | from YAML | `claude-code` or `cursor` |
 | `--model` | from YAML | Model to use |
 | `--timeout` | from YAML | Per-prompt timeout in seconds |
-
-**`skillprobe init <skill-dir>`** generates starter test YAML from a skill definition.
-
-| Flag | Default | Description |
-|---|---|---|
-| `--harness` | `claude-code` | Target harness |
-| `--output` | `tests/<skill>.yaml` | Output YAML path |
-| `--provider` | `anthropic` | LLM provider for generation |
-| `--model` | auto | Model for generation |
-| `--fixtures-dir` | `fixtures` | Where to write fixture directories |
 
 ## CI
 

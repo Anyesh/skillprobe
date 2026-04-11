@@ -11,6 +11,12 @@ from skillprobe.activation import (
 )
 from skillprobe.adapters import get_adapter
 from skillprobe.adapters.base import HarnessConfig
+from skillprobe.cache import (
+    RunCache,
+    cache_disabled_from_env,
+    default_cache_dir,
+    ttl_hours_from_env,
+)
 from skillprobe.loader import load_scenario_suite
 from skillprobe.orchestrator import ScenarioOrchestrator
 from skillprobe.reporter import format_harness_results
@@ -35,6 +41,24 @@ def main():
 @click.option(
     "--max-cost", default=None, type=float, help="Max USD spend (Claude Code only)"
 )
+@click.option(
+    "--no-cache",
+    is_flag=True,
+    default=False,
+    help="Disable the run cache entirely for this invocation",
+)
+@click.option(
+    "--force-refresh",
+    is_flag=True,
+    default=False,
+    help="Bypass cache reads but still write fresh results",
+)
+@click.option(
+    "--cache-dir",
+    default=None,
+    type=click.Path(),
+    help="Override the cache directory",
+)
 def run(
     test_file: str,
     harness_name: str | None,
@@ -42,6 +66,9 @@ def run(
     parallel: int,
     timeout: int | None,
     max_cost: float | None,
+    no_cache: bool,
+    force_refresh: bool,
+    cache_dir: str | None,
 ):
     suite = load_scenario_suite(Path(test_file))
     resolved_harness = harness_name or suite.harness
@@ -55,6 +82,26 @@ def run(
             err=True,
         )
         max_cost = None
+
+    cache_is_disabled = no_cache or cache_disabled_from_env()
+    if cache_dir is not None:
+        cache_path = Path(cache_dir)
+    else:
+        cache_path = default_cache_dir()
+    cache = RunCache(
+        cache_dir=cache_path,
+        ttl_hours=ttl_hours_from_env(),
+        disabled=cache_is_disabled,
+    )
+    if force_refresh and not cache_is_disabled:
+
+        class _WriteOnlyCache(RunCache):
+            def get(self, key):
+                return None
+
+        cache = _WriteOnlyCache(
+            cache_dir=cache_path, ttl_hours=ttl_hours_from_env(), disabled=False
+        )
 
     config = HarnessConfig(
         harness=resolved_harness,
@@ -78,12 +125,19 @@ def run(
             click.echo(f"  Skills: {len(suite.skills)} loaded")
             for s in suite.skills:
                 click.echo(f"    - {s}")
+    if cache_is_disabled:
+        click.echo("  Cache: disabled")
+    elif force_refresh:
+        click.echo(f"  Cache: write-only at {cache_path}")
+    else:
+        click.echo(f"  Cache: {cache_path}")
     click.echo()
 
     orchestrator = ScenarioOrchestrator(
         adapter=adapter,
         config=config,
         work_dir=Path(tempfile.gettempdir()) / "skillprobe-workspaces",
+        cache=cache,
     )
     results = asyncio.run(orchestrator.run(suite))
     click.echo(format_harness_results(results))

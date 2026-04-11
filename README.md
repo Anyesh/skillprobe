@@ -155,21 +155,72 @@ The single-skill `skill:` field still works unchanged for existing test files. U
 
 See `examples/tests/test-combo-sample.yaml` for a runnable example.
 
-### Measuring variance
+### Testing combinations at scale with a matrix
 
-Skills on modern models are probabilistic. Before setting `min_pass_rate` on a scenario, measure its natural variance:
+When you want to test one skill against many others, for example a new skill paired against every popular skill in a reference set, a `matrix:` block at suite level expands one YAML into N scenario runs, one per pairing:
+
+```yaml
+harness: claude-code
+model: claude-haiku-4-5-20251001
+
+matrix:
+  base: ./skills/commit
+  pair_with:
+    - ./skills/verification-before-completion
+    - ./skills/clean-python
+    - ./skills/systematic-debugging
+
+scenarios:
+  - name: "commit respects the paired skill's conventions"
+    steps:
+      - prompt: "commit my changes"
+        runs: 5
+        min_pass_rate: 0.8
+        assert:
+          - type: regex
+            value: '(conventional|feat|fix|chore)'
+```
+
+Each scenario runs once per `pair_with` entry with `base` and that entry loaded together. Reporter output groups results by pairing so you can see at a glance which combinations regressed and which held up. Total cost is linear in the length of the `pair_with` list. Cache entries apply per cell, so rerunning the same matrix after editing one skill only repays for the cells that actually changed.
+
+`matrix:` cannot coexist with `skill:` or `skills:` at the suite level; pick one. Use `skill:` for a single test, `skills:` for a hand-authored combination, and `matrix:` when you want to sweep one base against many pairings from a single file.
+
+### Detecting real combination regressions with baseline mode
+
+A matrix run gives you a pile of pass/fail results but does not tell you whether a combined failure is a genuine combination regression or just natural model variance. The `--baseline` mode runs each matrix pairing three times per scenario (base skill alone, paired skill alone, both loaded) and classifies every assertion into one of four buckets:
+
+- `regression` means both solo runs passed cleanly and the combined run dropped beyond the regression margin. This is the bucket you should act on.
+- `shared_failure` means both solo and combined failed. Not a combination problem; fix your scenario or one of the skills.
+- `flaky` means combined dropped but the drop is within the margin. Reported for visibility but does not fail the exit code.
+- `ok` means combined matches or exceeds the solo pass rates.
+
+```bash
+skillprobe run my-matrix.yaml --baseline --baseline-runs 20
+```
+
+`--baseline-runs` defaults to 5, but you should use at least 10 and preferably 20 because at small N the Wilson confidence interval on each configuration is so wide that the regression test becomes permissive and everything comes back `ok` or `flaky`. A warning prints when the value is below 10. `--regression-margin` (default 0.15) sets how far the combined rate must drop below the narrowest solo lower bound before it counts as a regression.
+
+Cost is roughly three times a regular matrix run because every pair needs two solo baselines plus the combined run. Treat this as a nightly or on-demand audit, not a per-PR check. skillprobe prints a per-pairing and grand-total cost line at the end of baseline runs so you can see what the session actually spent.
+
+### Measuring variance before you set thresholds
+
+Skills on modern models are probabilistic. Before picking a `min_pass_rate`, measure the scenario's natural variance with the bundled `measure` command:
 
 ```bash
 skillprobe measure examples/tests/test-combo-sample.yaml --runs 20
 ```
 
-Output is a per-assertion pass rate, 95% Wilson confidence interval, and a variance classification (`deterministic`, `probabilistic`, `noisy`, `unreliable`). Use this to pick a threshold grounded in real numbers instead of guessing.
+Output is a per-assertion pass rate, a 95 percent Wilson confidence interval, and a variance classification of `deterministic`, `probabilistic`, `noisy`, or `unreliable`. Use this to pick a threshold from real numbers instead of guessing. As an example of how much variance is normal, `test-combo-sample.yaml` measured against claude-haiku-4-5 on a 10-run probe landed at a 90 percent pass rate on one assertion and a 70 percent pass rate on another with a 95 percent CI spanning 0.40 to 0.89, so a single pass/fail run against that scenario genuinely cannot tell you whether it is working.
+
+`skillprobe measure` deliberately does not use the run cache so every invocation characterizes fresh variance.
 
 ### Caching runs
 
-Repeated runs of the same scenario against the same skill files, model, and harness read from a local cache at `~/.cache/skillprobe/runs/` (or `$XDG_CACHE_HOME/skillprobe/runs/`). The cache is keyed by the SHA256 of skill file contents, prompt, model, harness, and skillprobe version, so any change invalidates the entry automatically. TTL is 24 hours by default, configurable via `SKILLPROBE_CACHE_TTL_HOURS`.
+Repeated runs of the same scenario against the same skill files, model, and harness read from a local cache at `~/.cache/skillprobe/runs/` (or `$XDG_CACHE_HOME/skillprobe/runs/`). The cache key is a SHA256 of skill file contents, prompt, model, harness, and skillprobe version, so any change to any of those invalidates the entry automatically. TTL is 24 hours by default, configurable via `SKILLPROBE_CACHE_TTL_HOURS`.
 
-Disable caching entirely with `--no-cache` or `SKILLPROBE_NO_CACHE=1`. Bypass reads but keep writes with `--force-refresh`. Override the cache directory with `--cache-dir /some/other/path` for testing or isolation.
+A scenario whose runs all hit the cache is shown in the reporter as `[cache hit]` next to the scenario line. The cost number in parentheses on a cached line is the replayed cost from the original run, not new spend, so a cached scenario header looks like `[PASS] scenario name (0.0s $0.0516) [cache hit]`.
+
+Disable caching entirely with `--no-cache` or `SKILLPROBE_NO_CACHE=1`. Bypass cache reads but keep writing fresh results with `--force-refresh`. Override the cache directory with `--cache-dir /some/other/path` for testing or isolation.
 
 ## Commands
 
@@ -181,7 +232,23 @@ Disable caching entirely with `--no-cache` or `SKILLPROBE_NO_CACHE=1`. Bypass re
 | `--model` | from YAML | Model to use for the tool under test |
 | `--parallel` | 1 | Number of scenarios to run concurrently |
 | `--timeout` | from YAML | Per-scenario timeout in seconds |
-| `--max-cost` | none | Max USD spend (Claude Code only) |
+| `--max-cost` | none | Max USD spend per subprocess (Claude Code only; ignored on cursor with a warning) |
+| `--no-cache` | false | Disable the local run cache entirely for this invocation |
+| `--force-refresh` | false | Bypass cache reads but still write fresh results |
+| `--cache-dir` | `~/.cache/skillprobe/runs/` | Override the cache directory |
+| `--baseline` | false | Run each matrix pairing in solo / solo / combined baseline diff mode |
+| `--regression-margin` | 0.15 | Regression margin used by the baseline classifier |
+| `--baseline-runs` | 5 | Number of runs per configuration in baseline mode (use 10+ for meaningful results) |
+
+**`skillprobe measure <test.yaml>`** runs each scenario N times and reports a per-assertion pass rate, 95 percent Wilson confidence interval, and a variance classification. Use this to pick `min_pass_rate` from data instead of guessing. Does not use the run cache.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--runs` | 20 | Number of runs per scenario |
+| `--harness` | from YAML | `claude-code` or `cursor` |
+| `--model` | from YAML | Model to use |
+| `--timeout` | from YAML | Per-prompt timeout in seconds |
+| `--json` | false | Emit JSON instead of the human-readable report |
 
 **`skillprobe activation <test.yaml>`** tests whether a skill loads for relevant prompts and stays quiet for irrelevant ones. Detects skill loading by checking for Skill tool calls in the CLI output rather than fuzzy matching response text.
 

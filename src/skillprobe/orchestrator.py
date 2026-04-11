@@ -102,7 +102,7 @@ class ScenarioOrchestrator:
                     continue
 
                 try:
-                    evidence, _cache_hit = await self._send_prompt_cached(
+                    evidence, cache_hit = await self._send_prompt_cached(
                         step.prompt, workspace, session_id, skills
                     )
                 except Exception as e:
@@ -144,6 +144,7 @@ class ScenarioOrchestrator:
                         prompt=step.prompt,
                         assertions=assertion_results,
                         skipped_assertions=skipped,
+                        cache_hits=1 if cache_hit else 0,
                     )
                 )
 
@@ -194,20 +195,22 @@ class ScenarioOrchestrator:
         step_costs: list[float],
         skills: list[str],
     ) -> StepResult:
-        from skillprobe.loader import ScenarioStep
-
         supported = self._adapter.supported_assertions()
         passed_runs = 0
         skipped = 0
+        cache_hit_count = 0
         last_assertion_results = []
 
         for _ in range(step.runs):
             try:
-                evidence, _cache_hit = await self._send_prompt_cached(
+                evidence, cache_hit = await self._send_prompt_cached(
                     step.prompt, workspace, session_id, skills
                 )
             except Exception:
                 continue
+
+            if cache_hit:
+                cache_hit_count += 1
 
             if evidence.cost_usd is not None:
                 step_costs.append(evidence.cost_usd)
@@ -235,4 +238,5 @@ class ScenarioOrchestrator:
             total_runs=step.runs,
             passed_runs=passed_runs,
             min_pass_rate=step.min_pass_rate,
+            cache_hits=cache_hit_count,
         )

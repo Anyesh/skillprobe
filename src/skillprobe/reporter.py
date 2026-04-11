@@ -12,6 +12,7 @@ class StepResult:
     total_runs: int = 1
     passed_runs: int = 1
     min_pass_rate: float = 1.0
+    cache_hits: int = 0
 
     @property
     def pass_rate(self) -> float:
@@ -22,6 +23,10 @@ class StepResult:
     @property
     def meets_threshold(self) -> bool:
         return self.pass_rate >= self.min_pass_rate
+
+    @property
+    def fully_cached(self) -> bool:
+        return self.total_runs > 0 and self.cache_hits == self.total_runs
 
 
 @dataclass
@@ -69,7 +74,9 @@ def format_harness_results(results: list[ScenarioResult]) -> str:
 
         dur = f"{r.duration_ms / 1000:.1f}s"
         cost_str = f" ${r.cost_usd:.4f}" if r.cost_usd is not None else ""
-        lines.append(f"  [{icon}] {r.scenario_name} ({dur}{cost_str})")
+        all_cached = bool(r.steps) and all(s.fully_cached for s in r.steps)
+        cache_tag = " [cache hit]" if all_cached else ""
+        lines.append(f"  [{icon}] {r.scenario_name} ({dur}{cost_str}){cache_tag}")
 
         for step in r.steps:
             if step.total_runs > 1:

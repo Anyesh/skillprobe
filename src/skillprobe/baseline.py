@@ -35,6 +35,7 @@ class ScenarioBaseline:
     prompt: str
     pairing_label: str
     per_assertion: list[AssertionBaseline]
+    total_cost_usd: float | None = None
 
 
 def classify_baseline(
@@ -73,7 +74,7 @@ async def _run_scenario_n_times(
     skills: list[str],
     harness: str,
     runs: int,
-) -> list[dict[str, int]]:
+) -> tuple[list[dict[str, int]], float]:
     skills_paths = [Path(s) for s in skills] if skills else None
     workspace = workspace_mgr.create(
         fixture=Path(scenario.workspace) if scenario.workspace else None,
@@ -88,8 +89,11 @@ async def _run_scenario_n_times(
         counts: list[dict[str, int]] = [
             {"passed": 0, "total": 0} for _ in step.assertions
         ]
+        cost_total = 0.0
         for _ in range(runs):
             evidence = await adapter.send_prompt(step.prompt, workspace, None)
+            if evidence.cost_usd is not None:
+                cost_total += evidence.cost_usd
             for i, assertion in enumerate(step.assertions):
                 atype = assertion.get("type", "")
                 if atype not in supported:
@@ -100,7 +104,7 @@ async def _run_scenario_n_times(
                 counts[i]["total"] += 1
                 if result.passed:
                     counts[i]["passed"] += 1
-        return counts
+        return counts, cost_total
     finally:
         workspace_mgr.cleanup(workspace)
 
@@ -124,12 +128,12 @@ async def run_baseline_pairing(
                 continue
             if hasattr(adapter, "set_mode"):
                 adapter.set_mode("a")
-            solo_a_counts = await _run_scenario_n_times(
+            solo_a_counts, solo_a_cost = await _run_scenario_n_times(
                 adapter, workspace_mgr, scenario, [base_skill], config.harness, runs
             )
             if hasattr(adapter, "set_mode"):
                 adapter.set_mode("b")
-            solo_b_counts = await _run_scenario_n_times(
+            solo_b_counts, solo_b_cost = await _run_scenario_n_times(
                 adapter,
                 workspace_mgr,
                 scenario,
@@ -139,7 +143,7 @@ async def run_baseline_pairing(
             )
             if hasattr(adapter, "set_mode"):
                 adapter.set_mode("combined")
-            combined_counts = await _run_scenario_n_times(
+            combined_counts, combined_cost = await _run_scenario_n_times(
                 adapter,
                 workspace_mgr,
                 scenario,
@@ -147,6 +151,8 @@ async def run_baseline_pairing(
                 config.harness,
                 runs,
             )
+            total_cost = solo_a_cost + solo_b_cost + combined_cost
+            cost_reportable = total_cost if total_cost > 0 else None
 
             step = scenario.steps[0]
             per_assertion = []
@@ -168,6 +174,7 @@ async def run_baseline_pairing(
                     prompt=step.prompt,
                     pairing_label=pairing_label,
                     per_assertion=per_assertion,
+                    total_cost_usd=cost_reportable,
                 )
             )
     finally:

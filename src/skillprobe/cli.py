@@ -195,6 +195,16 @@ def run(
             raise SystemExit(2)
 
         any_regression = False
+        total_baseline_cost = 0.0
+        total_baseline_has_cost = False
+        if baseline_runs < 10:
+            click.echo(
+                f"  warning: --baseline-runs={baseline_runs} is low; "
+                f"Wilson CIs are wide at N<10 and the regression test "
+                f"becomes permissive. Use at least 10-20 runs for meaningful "
+                f"regression detection.",
+                err=True,
+            )
         for pair in suite.matrix.pair_with:
             label = f"{Path(suite.matrix.base).name} + {Path(pair).name}"
             click.echo(f"  Baseline pairing: {label}")
@@ -215,6 +225,8 @@ def run(
                 )
             )
 
+            pair_cost = 0.0
+            pair_has_cost = False
             for sb in scenario_baselines:
                 click.echo(f"    {sb.scenario_name}")
                 for a in sb.per_assertion:
@@ -228,8 +240,20 @@ def run(
                     click.echo(f"      {label_str} {a.assertion_type:15s} {rates}")
                     if cls == BaselineClassification.REGRESSION:
                         any_regression = True
+                if sb.total_cost_usd is not None:
+                    pair_cost += sb.total_cost_usd
+                    pair_has_cost = True
                 click.echo()
 
+            if pair_has_cost:
+                click.echo(f"    pairing cost: ${pair_cost:.4f}")
+                click.echo()
+            total_baseline_cost += pair_cost
+            total_baseline_has_cost = total_baseline_has_cost or pair_has_cost
+
+        if total_baseline_has_cost:
+            click.echo(f"  Total baseline cost: ${total_baseline_cost:.4f}")
+            click.echo()
         raise SystemExit(1 if any_regression else 0)
 
     orchestrator = ScenarioOrchestrator(

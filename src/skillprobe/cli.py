@@ -48,6 +48,14 @@ def run(
     resolved_model = model or suite.model
     resolved_timeout = timeout or suite.timeout
 
+    if max_cost is not None and resolved_harness != "claude-code":
+        click.echo(
+            f"  warning: --max-cost is ignored for harness '{resolved_harness}'; "
+            f"it is only wired up on claude-code",
+            err=True,
+        )
+        max_cost = None
+
     config = HarnessConfig(
         harness=resolved_harness,
         model=resolved_model,

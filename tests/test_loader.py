@@ -70,7 +70,7 @@ class TestLoadScenarioSuite:
         assert suite.harness == "claude-code"
         assert suite.model == "claude-sonnet-4-6"
         assert suite.timeout == 120
-        assert suite.skill == "./skills/commit"
+        assert suite.skills == ["./skills/commit"]
         assert len(suite.scenarios) == 3
 
     def test_parses_scenario_with_setup_and_after(self, suite_file):
@@ -127,7 +127,7 @@ scenarios:
         assert suite.harness == "claude-code"
         assert suite.model is None
         assert suite.timeout == 120
-        assert suite.skill is None
+        assert suite.skills == []
         assert suite.scenarios[0].steps[0].runs == 1
         assert suite.scenarios[0].steps[0].min_pass_rate == 1.0
 
@@ -149,3 +149,71 @@ scenarios:
         step = suite.scenarios[0].steps[0]
         assert step.runs == 5
         assert step.min_pass_rate == 0.8
+
+    def test_parses_skills_list(self, tmp_path):
+        content = """
+skills:
+  - ./skills/commit
+  - ./skills/verify
+scenarios:
+  - name: "combo"
+    steps:
+      - prompt: "go"
+        assert:
+          - type: contains
+            value: "ok"
+"""
+        f = tmp_path / "combo.yaml"
+        f.write_text(content)
+        suite = load_scenario_suite(f)
+        assert suite.skills == ["./skills/commit", "./skills/verify"]
+
+    def test_single_skill_key_parses_to_single_element_list(self, tmp_path):
+        content = """
+skill: ./skills/commit
+scenarios:
+  - name: "legacy"
+    steps:
+      - prompt: "go"
+        assert:
+          - type: contains
+            value: "ok"
+"""
+        f = tmp_path / "legacy.yaml"
+        f.write_text(content)
+        suite = load_scenario_suite(f)
+        assert suite.skills == ["./skills/commit"]
+
+    def test_both_skill_and_skills_raises(self, tmp_path):
+        content = """
+skill: ./skills/a
+skills:
+  - ./skills/b
+scenarios:
+  - name: "bad"
+    steps:
+      - prompt: "go"
+        assert:
+          - type: contains
+            value: "ok"
+"""
+        f = tmp_path / "bad.yaml"
+        f.write_text(content)
+        with pytest.raises(ValueError, match="both 'skill' and 'skills'"):
+            load_scenario_suite(f)
+
+    def test_skills_must_be_a_list(self, tmp_path):
+        content = """
+skills: ./skills/not-a-list
+scenarios:
+  - name: "bad"
+    steps:
+      - prompt: "go"
+        assert:
+          - type: contains
+            value: "ok"
+"""
+        f = tmp_path / "bad.yaml"
+        f.write_text(content)
+        with pytest.raises(ValueError, match="'skills' must be a list"):
+            load_scenario_suite(f)

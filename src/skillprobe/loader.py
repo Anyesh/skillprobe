@@ -28,7 +28,7 @@ class ScenarioSuite:
     harness: str
     model: str | None
     timeout: int
-    skill: str | None
+    skills: list[str]
     scenarios: list[Scenario]
 
 
@@ -37,6 +37,21 @@ def load_scenario_suite(path: Path) -> ScenarioSuite:
         raise FileNotFoundError(f"Scenario suite not found: {path}")
     with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
+
+    skill_single = data.get("skill")
+    skills_raw = data.get("skills")
+    if skill_single is not None and skills_raw is not None:
+        raise ValueError(
+            f"{path}: cannot specify both 'skill' and 'skills'; use one or the other"
+        )
+    if skills_raw is not None:
+        if not isinstance(skills_raw, list):
+            raise ValueError(f"{path}: 'skills' must be a list of paths")
+        skills = [str(s) for s in skills_raw]
+    elif skill_single is not None:
+        skills = [str(skill_single)]
+    else:
+        skills = []
 
     scenarios = []
     for s in data.get("scenarios", []):
@@ -65,6 +80,6 @@ def load_scenario_suite(path: Path) -> ScenarioSuite:
         harness=data.get("harness", "claude-code"),
         model=data.get("model"),
         timeout=data.get("timeout", 120),
-        skill=data.get("skill"),
+        skills=skills,
         scenarios=scenarios,
     )

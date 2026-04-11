@@ -42,6 +42,26 @@ def load_activation_suite(path: Path) -> ActivationSuite:
     with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"{path}: activation suite must be a YAML mapping at the top level"
+        )
+
+    if "scenarios" in data:
+        raise ValueError(
+            f"{path}: this file contains a 'scenarios:' block, which is the "
+            f"format for `skillprobe run` test files. Use "
+            f"`load_scenario_suite` or the `skillprobe run` command, or "
+            f"remove the 'scenarios:' block if this is meant to be an "
+            f"activation test."
+        )
+
+    if "activation" not in data:
+        raise ValueError(
+            f"{path}: activation suite is missing an 'activation:' block; "
+            f"this is required for `skillprobe activation` files"
+        )
+
     activation = data.get("activation", {})
 
     return ActivationSuite(

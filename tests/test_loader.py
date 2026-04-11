@@ -26,7 +26,7 @@ scenarios:
     steps:
       - prompt: "commit my changes"
         assert:
-          - type: skill_loaded
+          - type: skill_activated
             value: "commit"
           - type: contains
             value: "commit"
@@ -55,7 +55,7 @@ scenarios:
         assert:
           - type: not_contains
             value: "commit"
-          - type: skill_loaded
+          - type: skill_activated
             negate: true
             value: "commit"
 """
@@ -252,4 +252,62 @@ scenarios:
         f = tmp_path / "collide.yaml"
         f.write_text(content)
         with pytest.raises(ValueError, match="collision"):
+            load_scenario_suite(f)
+
+    def test_unknown_assertion_type_raises(self, tmp_path):
+        content = """
+scenarios:
+  - name: "typo scenario"
+    steps:
+      - prompt: "go"
+        assert:
+          - type: skill_loaded
+            value: "commit"
+"""
+        f = tmp_path / "typo.yaml"
+        f.write_text(content)
+        with pytest.raises(ValueError, match="unknown assertion type 'skill_loaded'"):
+            load_scenario_suite(f)
+
+    def test_unknown_assertion_type_in_after_block_raises(self, tmp_path):
+        content = """
+scenarios:
+  - name: "bad after"
+    steps:
+      - prompt: "go"
+        assert:
+          - type: contains
+            value: "ok"
+    after:
+      - type: file_does_not_exist
+        value: "x"
+"""
+        f = tmp_path / "bad-after.yaml"
+        f.write_text(content)
+        with pytest.raises(
+            ValueError, match="unknown assertion type 'file_does_not_exist'"
+        ):
+            load_scenario_suite(f)
+
+    def test_activation_block_in_scenario_file_raises(self, tmp_path):
+        content = """
+skill: ./skills/commit
+activation:
+  skill_name: commit
+  should_activate:
+    - "commit"
+"""
+        f = tmp_path / "wrong-format.yaml"
+        f.write_text(content)
+        with pytest.raises(ValueError, match="contains an 'activation:' block"):
+            load_scenario_suite(f)
+
+    def test_missing_scenarios_block_raises(self, tmp_path):
+        content = """
+harness: claude-code
+skill: ./skills/commit
+"""
+        f = tmp_path / "no-scenarios.yaml"
+        f.write_text(content)
+        with pytest.raises(ValueError, match="missing a 'scenarios:' block"):
             load_scenario_suite(f)

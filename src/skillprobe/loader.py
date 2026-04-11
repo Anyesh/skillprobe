@@ -4,6 +4,8 @@ from typing import Any
 
 import yaml
 
+from skillprobe.assertions import ASSERTION_TYPES
+
 
 @dataclass
 class ScenarioStep:
@@ -39,11 +41,47 @@ def _target_dir_name(skill_path: str) -> str:
     return name
 
 
+def _validate_assertion_type(
+    path: Path,
+    scenario_name: str,
+    assertion: dict[str, Any],
+    in_after: bool = False,
+) -> None:
+    atype = assertion.get("type")
+    if atype not in ASSERTION_TYPES:
+        location = "after block" if in_after else "step"
+        valid = ", ".join(sorted(ASSERTION_TYPES))
+        raise ValueError(
+            f"{path}: unknown assertion type {atype!r} in {location} of "
+            f"scenario {scenario_name!r}. Valid types: {valid}"
+        )
+
+
 def load_scenario_suite(path: Path) -> ScenarioSuite:
     if not path.exists():
         raise FileNotFoundError(f"Scenario suite not found: {path}")
     with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
+
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"{path}: scenario suite must be a YAML mapping at the top level"
+        )
+
+    if "activation" in data:
+        raise ValueError(
+            f"{path}: this file contains an 'activation:' block, which is the "
+            f"format for `skillprobe activation` test files. Use "
+            f"`load_activation_suite` or the `skillprobe activation` command, "
+            f"or remove the 'activation:' block if this is meant to be a "
+            f"behavioral test."
+        )
+
+    if "scenarios" not in data:
+        raise ValueError(
+            f"{path}: scenario suite is missing a 'scenarios:' block; this is "
+            f"required for `skillprobe run` files"
+        )
 
     skill_single = data.get("skill")
     skills_raw = data.get("skills")
@@ -76,21 +114,27 @@ def load_scenario_suite(path: Path) -> ScenarioSuite:
     for s in data.get("scenarios", []):
         steps = []
         for step in s.get("steps", []):
+            raw_assertions = step.get("assert", [])
+            for a in raw_assertions:
+                _validate_assertion_type(path, s.get("name", "?"), a)
             steps.append(
                 ScenarioStep(
                     prompt=step["prompt"],
-                    assertions=step.get("assert", []),
+                    assertions=raw_assertions,
                     runs=step.get("runs", 1),
                     min_pass_rate=step.get("min_pass_rate", 1.0),
                 )
             )
+        after_assertions = s.get("after", [])
+        for a in after_assertions:
+            _validate_assertion_type(path, s.get("name", "?"), a, in_after=True)
         scenarios.append(
             Scenario(
                 name=s["name"],
                 workspace=s.get("workspace"),
                 setup=s.get("setup", []),
                 steps=steps,
-                after=s.get("after", []),
+                after=after_assertions,
                 timeout=s.get("timeout"),
             )
         )

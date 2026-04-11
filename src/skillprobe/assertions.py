@@ -139,3 +139,5 @@ _HANDLERS = {
     "file_exists": _check_file_exists,
     "file_contains": _check_file_contains,
 }
+
+ASSERTION_TYPES: frozenset[str] = frozenset(_HANDLERS.keys())

@@ -234,7 +234,7 @@ class TestOrchestrator:
                             prompt="test",
                             assertions=[
                                 {"type": "contains", "value": "response"},
-                                {"type": "skill_loaded", "value": "commit"},
+                                {"type": "skill_activated", "value": "commit"},
                             ],
                         ),
                     ],

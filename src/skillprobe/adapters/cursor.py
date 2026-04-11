@@ -100,14 +100,27 @@ class CursorAdapter:
         duration_ms = 0.0
         is_error = False
         call_id_to_index = {}
+        events_parsed = 0
 
-        for line in raw_output.strip().split("\n"):
+        stripped = raw_output.strip()
+        if stripped and not any(
+            line.strip().startswith("{") for line in stripped.split("\n")
+        ):
+            raise RuntimeError(
+                f"cursor subprocess produced non-stream-json output (exit "
+                f"{returncode}); this usually means the model name is not "
+                f"valid for cursor, or the cursor CLI errored before emitting "
+                f"events. Raw output: {stripped[:500]}"
+            )
+
+        for line in stripped.split("\n"):
             if not line.strip():
                 continue
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            events_parsed += 1
 
             etype = event.get("type", "")
 
@@ -153,6 +166,13 @@ class CursorAdapter:
                 session_id = event.get("session_id", session_id)
                 duration_ms = event.get("duration_ms", duration_ms)
                 is_error = event.get("is_error", is_error)
+
+        if events_parsed == 0 and stripped:
+            raise RuntimeError(
+                f"cursor subprocess produced output but no valid stream-json "
+                f"events could be parsed (exit {returncode}). Raw output: "
+                f"{stripped[:500]}"
+            )
 
         return StepEvidence(
             response_text="".join(text_parts),

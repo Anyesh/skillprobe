@@ -385,6 +385,20 @@ class TestCursorAdapter:
             idx = list(args).index("--workspace")
             assert args[idx + 1] == str(tmp_path)
 
+    @pytest.mark.asyncio
+    async def test_plain_text_error_raises_not_silent_empty(self, tmp_path):
+        adapter = CursorAdapter()
+        adapter._config = HarnessConfig(harness="cursor", model="bogus")
+        plain_text_error = (
+            "Cannot use this model: bogus. Available models: auto, composer-2"
+        )
+        with patch(
+            "asyncio.create_subprocess_exec",
+            return_value=make_completed_process(plain_text_error, returncode=0),
+        ):
+            with pytest.raises(RuntimeError, match="non-stream-json output"):
+                await adapter.send_prompt("test", tmp_path, None)
+
 
 class TestGetAdapter:
     def test_returns_claude_code(self):

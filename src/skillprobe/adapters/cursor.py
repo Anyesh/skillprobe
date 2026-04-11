@@ -36,7 +36,7 @@ class CursorAdapter:
             cwd=workspace,
         )
         try:
-            stdout_bytes, _ = await asyncio.wait_for(
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
                 proc.communicate(), timeout=timeout
             )
         except (asyncio.TimeoutError, asyncio.CancelledError):
@@ -54,8 +54,9 @@ class CursorAdapter:
                 capture_id=None,
             )
         raw_output = stdout_bytes.decode("utf-8", errors="replace")
+        stderr_output = stderr_bytes.decode("utf-8", errors="replace")
 
-        return self._parse_stream_output(raw_output, proc.returncode)
+        return self._parse_stream_output(raw_output, proc.returncode, stderr_output)
 
     def supported_assertions(self) -> set[str]:
         return {
@@ -93,7 +94,9 @@ class CursorAdapter:
             args.extend(self._config.extra_flags)
         return args
 
-    def _parse_stream_output(self, raw_output: str, returncode: int) -> StepEvidence:
+    def _parse_stream_output(
+        self, raw_output: str, returncode: int, stderr_output: str = ""
+    ) -> StepEvidence:
         text_parts = []
         tool_calls = []
         session_id = None
@@ -103,16 +106,7 @@ class CursorAdapter:
         events_parsed = 0
 
         stripped = raw_output.strip()
-        for line in stripped.split("\n"):
-            content = line.strip()
-            if content and not content.startswith("{"):
-                raise RuntimeError(
-                    f"cursor subprocess mixed plain text into its output "
-                    f"(exit {returncode}); this usually means cursor hit a "
-                    f"usage limit, an authentication problem, or an invalid "
-                    f"model name. The offending line was: {content[:200]!r}. "
-                    f"Raw output: {stripped[:500]}"
-                )
+        stderr_stripped = stderr_output.strip()
 
         for line in stripped.split("\n"):
             if not line.strip():
@@ -168,6 +162,22 @@ class CursorAdapter:
                 duration_ms = event.get("duration_ms", duration_ms)
                 is_error = event.get("is_error", is_error)
 
+        response_text = "".join(text_parts)
+
+        if returncode != 0 and stderr_stripped:
+            raise RuntimeError(
+                f"cursor subprocess exited with code {returncode}. "
+                f"stderr: {stderr_stripped[:500]}"
+            )
+
+        if not response_text.strip() and not tool_calls and stderr_stripped:
+            raise RuntimeError(
+                f"cursor subprocess produced no assistant content "
+                f"(exit {returncode}); this usually means cursor hit a "
+                f"usage limit, an authentication problem, or refused the "
+                f"prompt. stderr: {stderr_stripped[:500]}"
+            )
+
         if events_parsed == 0 and stripped:
             raise RuntimeError(
                 f"cursor subprocess produced output but no valid stream-json "
@@ -176,7 +186,7 @@ class CursorAdapter:
             )
 
         return StepEvidence(
-            response_text="".join(text_parts),
+            response_text=response_text,
             tool_calls=tool_calls,
             session_id=session_id,
             duration_ms=duration_ms,

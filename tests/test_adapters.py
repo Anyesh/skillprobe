@@ -216,9 +216,9 @@ CURSOR_STREAM_WITH_SKILL = "\n".join(
 )
 
 
-def make_completed_process(stdout: str, returncode: int = 0):
+def make_completed_process(stdout: str, returncode: int = 0, stderr: str = ""):
     proc = AsyncMock()
-    proc.communicate = AsyncMock(return_value=(stdout.encode(), b""))
+    proc.communicate = AsyncMock(return_value=(stdout.encode(), stderr.encode()))
     proc.returncode = returncode
     proc.pid = 12345
     return proc
@@ -386,24 +386,25 @@ class TestCursorAdapter:
             assert args[idx + 1] == str(tmp_path)
 
     @pytest.mark.asyncio
-    async def test_plain_text_error_raises_not_silent_empty(self, tmp_path):
+    async def test_invalid_model_via_stderr_raises(self, tmp_path):
         adapter = CursorAdapter()
         adapter._config = HarnessConfig(harness="cursor", model="bogus")
-        plain_text_error = (
-            "Cannot use this model: bogus. Available models: auto, composer-2"
-        )
         with patch(
             "asyncio.create_subprocess_exec",
-            return_value=make_completed_process(plain_text_error, returncode=0),
+            return_value=make_completed_process(
+                stdout="",
+                returncode=1,
+                stderr="Cannot use this model: bogus. Available models: auto, composer-2",
+            ),
         ):
-            with pytest.raises(RuntimeError, match="plain text"):
+            with pytest.raises(RuntimeError, match="exited with code 1"):
                 await adapter.send_prompt("test", tmp_path, None)
 
     @pytest.mark.asyncio
-    async def test_interleaved_plain_text_after_events_raises(self, tmp_path):
+    async def test_usage_limit_stderr_raises_when_no_assistant_content(self, tmp_path):
         adapter = CursorAdapter()
         adapter._config = HarnessConfig(harness="cursor", model="auto")
-        mixed_output = "\n".join(
+        stdout = "\n".join(
             [
                 json.dumps(
                     {
@@ -421,14 +422,16 @@ class TestCursorAdapter:
                         },
                     }
                 ),
-                "b: You've hit your usage limit. Get Cursor Pro for more.",
             ]
         )
+        stderr = "b: You've hit your usage limit Get Cursor Pro for more."
         with patch(
             "asyncio.create_subprocess_exec",
-            return_value=make_completed_process(mixed_output, returncode=0),
+            return_value=make_completed_process(
+                stdout=stdout, returncode=0, stderr=stderr
+            ),
         ):
-            with pytest.raises(RuntimeError, match="plain text"):
+            with pytest.raises(RuntimeError, match="no assistant content"):
                 await adapter.send_prompt("test", tmp_path, None)
 
 

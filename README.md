@@ -127,6 +127,34 @@ steps:
          step 1: [ok] 4/5 passed (80%)
 ```
 
+### Testing skill combinations
+
+Skills loaded together can interact in unexpected ways: one skill's rules can contradict another's, two skills can fight over which one handles a prompt, or a workflow that works in isolation can deadlock when combined. Load multiple skills in a single scenario suite using a `skills:` list at suite level:
+
+```yaml
+harness: claude-code
+model: claude-haiku-4-5-20251001
+skills:
+  - ./examples/skills/clean-code
+  - ./examples/skills/bad-python
+
+scenarios:
+  - name: "contradicting docstring rules surface clearly"
+    steps:
+      - prompt: "Write a Python function called add that takes two integers"
+        runs: 5
+        min_pass_rate: 0.8
+        assert:
+          - type: regex
+            value: 'def add\(.*: int.*: int.*\) -> int'
+          - type: not_contains
+            value: '"""'
+```
+
+The single-skill `skill:` field still works unchanged for existing test files. Use `skill:` for single-skill tests and `skills:` when you want to load two or more at once. Both keys in the same file is a parse error.
+
+See `examples/tests/test-combo-sample.yaml` for a runnable example.
+
 ## Commands
 
 **`skillprobe run <test.yaml>`** runs test scenarios against a real coding tool.

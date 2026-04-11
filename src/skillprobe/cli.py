@@ -12,6 +12,11 @@ from skillprobe.activation import (
 )
 from skillprobe.adapters import get_adapter
 from skillprobe.adapters.base import HarnessConfig
+from skillprobe.baseline import (
+    BaselineClassification,
+    classify_baseline,
+    run_baseline_pairing,
+)
 from skillprobe.cache import (
     RunCache,
     cache_disabled_from_env,
@@ -85,6 +90,25 @@ def main():
     type=click.Path(),
     help="Override the cache directory",
 )
+@click.option(
+    "--baseline",
+    "baseline_mode",
+    is_flag=True,
+    default=False,
+    help="Run each matrix pairing in solo/solo/combined baseline diff mode",
+)
+@click.option(
+    "--regression-margin",
+    default=0.15,
+    type=float,
+    help="Regression margin (default 0.15) for baseline mode",
+)
+@click.option(
+    "--baseline-runs",
+    default=5,
+    type=int,
+    help="Number of runs per configuration in baseline mode (default 5)",
+)
 def run(
     test_file: str,
     harness_name: str | None,
@@ -95,6 +119,9 @@ def run(
     no_cache: bool,
     force_refresh: bool,
     cache_dir: str | None,
+    baseline_mode: bool,
+    regression_margin: float,
+    baseline_runs: int,
 ):
     suite = load_scenario_suite(Path(test_file))
     resolved_harness = harness_name or suite.harness
@@ -158,6 +185,52 @@ def run(
     else:
         click.echo(f"  Cache: {cache_path}")
     click.echo()
+
+    if baseline_mode:
+        if suite.matrix is None:
+            click.echo(
+                "error: --baseline requires a matrix: block in the YAML",
+                err=True,
+            )
+            raise SystemExit(2)
+
+        any_regression = False
+        for pair in suite.matrix.pair_with:
+            label = f"{Path(suite.matrix.base).name} + {Path(pair).name}"
+            click.echo(f"  Baseline pairing: {label}")
+            click.echo(f"    base:    {suite.matrix.base}")
+            click.echo(f"    paired:  {pair}")
+            click.echo()
+
+            scenario_baselines = asyncio.run(
+                run_baseline_pairing(
+                    suite=suite,
+                    adapter=adapter,
+                    config=config,
+                    base_skill=suite.matrix.base,
+                    paired_skill=pair,
+                    pairing_label=label,
+                    runs=baseline_runs,
+                    work_dir=Path(tempfile.gettempdir()) / "skillprobe-workspaces",
+                )
+            )
+
+            for sb in scenario_baselines:
+                click.echo(f"    {sb.scenario_name}")
+                for a in sb.per_assertion:
+                    cls = classify_baseline(a, margin=regression_margin)
+                    label_str = f"[{cls.value.upper():13s}]"
+                    rates = (
+                        f"solo_a={a.solo_a_passed}/{a.total_runs} "
+                        f"solo_b={a.solo_b_passed}/{a.total_runs} "
+                        f"combined={a.combined_passed}/{a.total_runs}"
+                    )
+                    click.echo(f"      {label_str} {a.assertion_type:15s} {rates}")
+                    if cls == BaselineClassification.REGRESSION:
+                        any_regression = True
+                click.echo()
+
+        raise SystemExit(1 if any_regression else 0)
 
     orchestrator = ScenarioOrchestrator(
         adapter=adapter,

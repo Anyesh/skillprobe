@@ -18,7 +18,7 @@ class WorkspaceManager:
     def create(
         self,
         fixture: Path | None,
-        skill: Path | None,
+        skills: list[Path] | None,
         harness: str,
     ) -> Path:
         workspace = self._work_dir / uuid.uuid4().hex[:12]
@@ -27,16 +27,19 @@ class WorkspaceManager:
         else:
             workspace.mkdir(parents=True)
 
-        if skill and skill.exists():
+        if skills:
             skill_base = SKILL_PATHS.get(harness, SKILL_PATHS["claude-code"])
-            if skill.is_dir():
-                target = workspace / skill_base / skill.name
-                shutil.copytree(skill, target)
-            else:
-                skill_dir_name = skill.stem
-                target_dir = workspace / skill_base / skill_dir_name
-                target_dir.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(skill, target_dir / "SKILL.md")
+            for skill in skills:
+                if not skill.exists():
+                    continue
+                if skill.is_dir():
+                    target = workspace / skill_base / skill.name
+                    shutil.copytree(skill, target)
+                else:
+                    skill_dir_name = skill.stem
+                    target_dir = workspace / skill_base / skill_dir_name
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(skill, target_dir / "SKILL.md")
 
         return workspace
 

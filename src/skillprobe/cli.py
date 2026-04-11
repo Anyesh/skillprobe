@@ -1,4 +1,5 @@
 import asyncio
+import json
 import tempfile
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from skillprobe.cache import (
     ttl_hours_from_env,
 )
 from skillprobe.loader import load_scenario_suite
+from skillprobe.measure import format_variance_report, measure_suite
 from skillprobe.orchestrator import ScenarioOrchestrator
 from skillprobe.reporter import format_harness_results
 
@@ -144,6 +146,81 @@ def run(
 
     any_failed = any(not r.passed for r in results)
     raise SystemExit(1 if any_failed else 0)
+
+
+@main.command("measure")
+@click.argument("test_file", type=click.Path(exists=True))
+@click.option("--runs", default=20, type=int, help="Number of runs per scenario")
+@click.option(
+    "--harness", "harness_name", default=None, help="Harness: claude-code or cursor"
+)
+@click.option("--model", default=None, help="Override model")
+@click.option("--timeout", default=None, type=int, help="Per-prompt timeout (seconds)")
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit JSON output")
+def measure(
+    test_file: str,
+    runs: int,
+    harness_name: str | None,
+    model: str | None,
+    timeout: int | None,
+    as_json: bool,
+):
+    suite = load_scenario_suite(Path(test_file))
+    resolved_harness = harness_name or suite.harness
+    resolved_model = model or suite.model
+    resolved_timeout = timeout or suite.timeout
+
+    config = HarnessConfig(
+        harness=resolved_harness,
+        model=resolved_model,
+        timeout=resolved_timeout,
+    )
+    adapter = get_adapter(resolved_harness)
+
+    click.echo(f"Measuring: {test_file}")
+    click.echo(f"  Harness: {resolved_harness}")
+    click.echo(f"  Model: {resolved_model or 'default'}")
+    click.echo(f"  Runs per scenario: {runs}")
+    click.echo(f"  Scenarios: {len(suite.scenarios)}")
+    click.echo()
+
+    results = asyncio.run(
+        measure_suite(
+            suite=suite,
+            adapter=adapter,
+            config=config,
+            runs=runs,
+            work_dir=Path(tempfile.gettempdir()) / "skillprobe-workspaces",
+        )
+    )
+
+    if as_json:
+        payload = [
+            {
+                "scenario_name": r.scenario_name,
+                "prompt": r.prompt,
+                "total_runs": r.total_runs,
+                "total_cost_usd": r.total_cost_usd,
+                "per_assertion": [
+                    {
+                        "index": a.assertion_index,
+                        "type": a.assertion_type,
+                        "value": a.assertion_value,
+                        "passed": a.passed,
+                        "total": a.total,
+                        "pass_rate": a.pass_rate,
+                        "ci_low": a.ci_low,
+                        "ci_high": a.ci_high,
+                        "classification": a.classification.value,
+                    }
+                    for a in r.per_assertion
+                ],
+            }
+            for r in results
+        ]
+        click.echo(json.dumps(payload, indent=2))
+    else:
+        click.echo(format_variance_report(results))
 
 
 @main.command("activation")

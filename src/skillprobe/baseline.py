@@ -1,7 +1,11 @@
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 
+from skillprobe.adapters.base import HarnessAdapter, HarnessConfig
+from skillprobe.assertions import check_harness_assertion
 from skillprobe.measure import wilson_confidence_interval
+from skillprobe.workspace import WorkspaceManager
 
 
 class BaselineClassification(Enum):
@@ -60,3 +64,112 @@ def classify_baseline(
         return BaselineClassification.FLAKY
 
     return BaselineClassification.OK
+
+
+async def _run_scenario_n_times(
+    adapter: HarnessAdapter,
+    workspace_mgr: WorkspaceManager,
+    scenario,
+    skills: list[str],
+    harness: str,
+    runs: int,
+) -> list[dict[str, int]]:
+    skills_paths = [Path(s) for s in skills] if skills else None
+    workspace = workspace_mgr.create(
+        fixture=Path(scenario.workspace) if scenario.workspace else None,
+        skills=skills_paths,
+        harness=harness,
+    )
+    try:
+        if scenario.setup:
+            workspace_mgr.run_setup(workspace, scenario.setup)
+        supported = adapter.supported_assertions()
+        step = scenario.steps[0]
+        counts: list[dict[str, int]] = [
+            {"passed": 0, "total": 0} for _ in step.assertions
+        ]
+        for _ in range(runs):
+            evidence = await adapter.send_prompt(step.prompt, workspace, None)
+            for i, assertion in enumerate(step.assertions):
+                atype = assertion.get("type", "")
+                if atype not in supported:
+                    continue
+                result = check_harness_assertion(
+                    assertion, evidence, workspace=workspace
+                )
+                counts[i]["total"] += 1
+                if result.passed:
+                    counts[i]["passed"] += 1
+        return counts
+    finally:
+        workspace_mgr.cleanup(workspace)
+
+
+async def run_baseline_pairing(
+    suite: "ScenarioSuite",
+    adapter: HarnessAdapter,
+    config: HarnessConfig,
+    base_skill: str,
+    paired_skill: str,
+    pairing_label: str,
+    runs: int,
+    work_dir: Path,
+) -> list[ScenarioBaseline]:
+    adapter.start(config)
+    workspace_mgr = WorkspaceManager(work_dir)
+    results: list[ScenarioBaseline] = []
+    try:
+        for scenario in suite.scenarios:
+            if not scenario.steps:
+                continue
+            if hasattr(adapter, "set_mode"):
+                adapter.set_mode("a")
+            solo_a_counts = await _run_scenario_n_times(
+                adapter, workspace_mgr, scenario, [base_skill], config.harness, runs
+            )
+            if hasattr(adapter, "set_mode"):
+                adapter.set_mode("b")
+            solo_b_counts = await _run_scenario_n_times(
+                adapter,
+                workspace_mgr,
+                scenario,
+                [paired_skill],
+                config.harness,
+                runs,
+            )
+            if hasattr(adapter, "set_mode"):
+                adapter.set_mode("combined")
+            combined_counts = await _run_scenario_n_times(
+                adapter,
+                workspace_mgr,
+                scenario,
+                [base_skill, paired_skill],
+                config.harness,
+                runs,
+            )
+
+            step = scenario.steps[0]
+            per_assertion = []
+            for i, assertion in enumerate(step.assertions):
+                per_assertion.append(
+                    AssertionBaseline(
+                        assertion_index=i,
+                        assertion_type=assertion.get("type", ""),
+                        assertion_value=str(assertion.get("value", "")),
+                        solo_a_passed=solo_a_counts[i]["passed"],
+                        solo_b_passed=solo_b_counts[i]["passed"],
+                        combined_passed=combined_counts[i]["passed"],
+                        total_runs=runs,
+                    )
+                )
+            results.append(
+                ScenarioBaseline(
+                    scenario_name=scenario.name,
+                    prompt=step.prompt,
+                    pairing_label=pairing_label,
+                    per_assertion=per_assertion,
+                )
+            )
+    finally:
+        adapter.stop()
+    return results

@@ -103,15 +103,16 @@ class CursorAdapter:
         events_parsed = 0
 
         stripped = raw_output.strip()
-        if stripped and not any(
-            line.strip().startswith("{") for line in stripped.split("\n")
-        ):
-            raise RuntimeError(
-                f"cursor subprocess produced non-stream-json output (exit "
-                f"{returncode}); this usually means the model name is not "
-                f"valid for cursor, or the cursor CLI errored before emitting "
-                f"events. Raw output: {stripped[:500]}"
-            )
+        for line in stripped.split("\n"):
+            content = line.strip()
+            if content and not content.startswith("{"):
+                raise RuntimeError(
+                    f"cursor subprocess mixed plain text into its output "
+                    f"(exit {returncode}); this usually means cursor hit a "
+                    f"usage limit, an authentication problem, or an invalid "
+                    f"model name. The offending line was: {content[:200]!r}. "
+                    f"Raw output: {stripped[:500]}"
+                )
 
         for line in stripped.split("\n"):
             if not line.strip():

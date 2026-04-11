@@ -396,7 +396,39 @@ class TestCursorAdapter:
             "asyncio.create_subprocess_exec",
             return_value=make_completed_process(plain_text_error, returncode=0),
         ):
-            with pytest.raises(RuntimeError, match="non-stream-json output"):
+            with pytest.raises(RuntimeError, match="plain text"):
+                await adapter.send_prompt("test", tmp_path, None)
+
+    @pytest.mark.asyncio
+    async def test_interleaved_plain_text_after_events_raises(self, tmp_path):
+        adapter = CursorAdapter()
+        adapter._config = HarnessConfig(harness="cursor", model="auto")
+        mixed_output = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "system",
+                        "subtype": "init",
+                        "session_id": "s",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "user",
+                        "message": {
+                            "role": "user",
+                            "content": [{"type": "text", "text": "hi"}],
+                        },
+                    }
+                ),
+                "b: You've hit your usage limit. Get Cursor Pro for more.",
+            ]
+        )
+        with patch(
+            "asyncio.create_subprocess_exec",
+            return_value=make_completed_process(mixed_output, returncode=0),
+        ):
+            with pytest.raises(RuntimeError, match="plain text"):
                 await adapter.send_prompt("test", tmp_path, None)
 
 

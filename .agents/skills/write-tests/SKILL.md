@@ -73,6 +73,71 @@ scenarios:
 
 Pick one format per file.
 
+## Testing skill combinations
+
+Some tests need to load more than one skill at a time, either because you are probing interactions between skills or because the scenario legitimately needs both. Use a `skills:` list at the suite level instead of the singular `skill:`:
+
+```yaml
+harness: claude-code
+model: claude-haiku-4-5-20251001
+skills:
+  - ./skills/clean-code
+  - ./skills/bad-python
+
+scenarios:
+  - name: "clean-code wins over bad-python on function shape"
+    steps:
+      - prompt: "Write a Python function called add that takes two integers"
+        runs: 5
+        min_pass_rate: 0.8
+        assert:
+          - type: regex
+            value: 'def add\([^)]*: *int[^)]*: *int[^)]*\) *-> *int'
+          - type: not_contains
+            value: '"""'
+```
+
+`skill:` (singular) and `skills:` (plural list) are mutually exclusive, and the matrix form below cannot coexist with either. Pick exactly one of the three per file.
+
+## Sweeping one skill against many with a matrix
+
+When you want to test one base skill against a list of other skills without writing a separate file per pairing, use a `matrix:` block at suite level. It expands into N scenario runs, one per `pair_with` entry, loading `base` together with that entry:
+
+```yaml
+harness: claude-code
+model: claude-haiku-4-5-20251001
+matrix:
+  base: ./skills/my-new-skill
+  pair_with:
+    - ./skills/popular-a
+    - ./skills/popular-b
+    - ./skills/popular-c
+
+scenarios:
+  - name: "my-new-skill still works when paired with a popular skill"
+    steps:
+      - prompt: "the usual request for my-new-skill"
+        runs: 5
+        min_pass_rate: 0.8
+        assert:
+          - type: regex
+            value: "expected pattern"
+```
+
+Use `matrix:` when you have one base skill and a reference set of others to sweep it against. Use a plain `skills:` list when you want a specific hand-picked combination. Do not use both in the same file.
+
+## Detecting real regressions with baseline mode
+
+A matrix run reports pass or fail per pairing but does not tell you whether a combined failure is a genuine regression or just natural model variance. For that, tell the user to run the same matrix YAML with `skillprobe run ... --baseline --baseline-runs 20`. Baseline mode runs every pairing three times per scenario (base alone, paired alone, combined) and classifies each assertion as one of `regression`, `shared_failure`, `flaky`, or `ok`.
+
+The test author does not write anything special for baseline mode. It works on any YAML that already has a `matrix:` block. Your job is to set realistic `runs:` and `min_pass_rate:` values on the scenarios, and when you hand the test to the user, tell them that baseline mode is the right command to run when they want to separate real combination bugs from variance noise. Baseline mode is expensive (roughly three times a normal matrix run) so treat it as a nightly or on-demand audit, not a per-PR check.
+
+## Before picking min_pass_rate, measure
+
+`skillprobe measure test.yaml --runs 20` runs each scenario 20 times and reports per-assertion pass rates with 95 percent Wilson confidence intervals and a variance classification of `deterministic`, `probabilistic`, `noisy`, or `unreliable`. Run this against your draft test before committing to a `min_pass_rate` value. If the observed pass rate is 70 percent with a CI spanning 0.40 to 0.89, setting `min_pass_rate: 0.8` will produce a scenario that fails roughly half the time on variance alone and users will distrust the test.
+
+Measure first, then pick a threshold from the data.
+
 ## Assertion Types
 
 | Type | Checks | Example |
@@ -176,6 +241,8 @@ Good:
 
 ```bash
 skillprobe run tests/my-skill.yaml
-skillprobe activation tests/my-activation.yaml
 skillprobe run tests/my-skill.yaml --harness cursor --model auto
+skillprobe run tests/my-matrix.yaml --baseline --baseline-runs 20
+skillprobe measure tests/my-skill.yaml --runs 20
+skillprobe activation tests/my-activation.yaml
 ```

@@ -22,7 +22,7 @@ class ScenarioOrchestrator:
 
         async def run_with_semaphore(scenario: Scenario) -> ScenarioResult:
             async with semaphore:
-                return await self._run_scenario(scenario, suite.skill)
+                return await self._run_scenario(scenario, suite.skills)
 
         try:
             tasks = [run_with_semaphore(s) for s in suite.scenarios]
@@ -31,13 +31,13 @@ class ScenarioOrchestrator:
             self._adapter.stop()
 
     async def _run_scenario(
-        self, scenario: Scenario, skill: str | None
+        self, scenario: Scenario, skills: list[str]
     ) -> ScenarioResult:
         start = time.monotonic()
         fixture = Path(scenario.workspace) if scenario.workspace else None
-        skill_path = Path(skill) if skill else None
+        skill_paths = [Path(s) for s in skills] if skills else None
         workspace = self._workspace_mgr.create(
-            fixture, skill_path, self._config.harness
+            fixture, skill_paths, self._config.harness
         )
 
         try:

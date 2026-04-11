@@ -83,7 +83,7 @@ async def run_activation_suite(
     workspace_mgr = WorkspaceManager(work_dir)
     results = []
 
-    skill_path = Path(suite.skill) if suite.skill else None
+    skill_paths = [Path(suite.skill)] if suite.skill else None
 
     try:
         all_prompts = [(prompt, True) for prompt in suite.should_activate] + [
@@ -92,7 +92,7 @@ async def run_activation_suite(
 
         for prompt, expected_active in all_prompts:
             workspace = workspace_mgr.create(
-                fixture=None, skill=skill_path, harness=config.harness
+                fixture=None, skills=skill_paths, harness=config.harness
             )
             try:
                 start = time.monotonic()

@@ -68,7 +68,7 @@ def make_suite(scenarios: list[Scenario]) -> ScenarioSuite:
         harness="claude-code",
         model="test",
         timeout=120,
-        skill=None,
+        skills=[],
         scenarios=scenarios,
     )
 
@@ -386,3 +386,65 @@ class TestOrchestrator:
         assert results[0].passed is False
         assert results[0].steps[0].passed_runs == 1
         assert results[0].steps[0].meets_threshold is False
+
+    @pytest.mark.asyncio
+    async def test_multiple_skills_installed_in_workspace(self, tmp_path):
+        skill_a = tmp_path / "skills" / "sk-a"
+        skill_a.mkdir(parents=True)
+        (skill_a / "SKILL.md").write_text(
+            "---\nname: sk-a\ndescription: first\n---\nA."
+        )
+        skill_b = tmp_path / "skills" / "sk-b"
+        skill_b.mkdir(parents=True)
+        (skill_b / "SKILL.md").write_text(
+            "---\nname: sk-b\ndescription: second\n---\nB."
+        )
+        skill_files_seen: list[tuple[bool, bool]] = []
+
+        class RecordingAdapter(FakeAdapter):
+            async def send_prompt(self, prompt, workspace, session_id):
+                skill_files_seen.append(
+                    (
+                        (
+                            workspace / ".claude" / "skills" / "sk-a" / "SKILL.md"
+                        ).exists(),
+                        (
+                            workspace / ".claude" / "skills" / "sk-b" / "SKILL.md"
+                        ).exists(),
+                    )
+                )
+                return await FakeAdapter.send_prompt(
+                    self, prompt, workspace, session_id
+                )
+
+        adapter = RecordingAdapter(["ok"])
+        config = HarnessConfig(harness="claude-code")
+        suite = ScenarioSuite(
+            harness="claude-code",
+            model="test",
+            timeout=120,
+            skills=[str(skill_a), str(skill_b)],
+            scenarios=[
+                Scenario(
+                    name="combo",
+                    workspace=None,
+                    setup=[],
+                    steps=[
+                        ScenarioStep(
+                            prompt="go",
+                            assertions=[{"type": "contains", "value": "ok"}],
+                        ),
+                    ],
+                    after=[],
+                    timeout=None,
+                ),
+            ],
+        )
+        orchestrator = ScenarioOrchestrator(
+            adapter=adapter, config=config, work_dir=tmp_path / "work"
+        )
+        await orchestrator.run(suite)
+        assert len(skill_files_seen) == 1
+        sk_a_present, sk_b_present = skill_files_seen[0]
+        assert sk_a_present
+        assert sk_b_present

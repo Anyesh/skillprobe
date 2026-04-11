@@ -1,0 +1,37 @@
+harness: claude-code
+model: claude-haiku-4-5-20251001
+timeout: 180
+skills:
+  - ./examples/skills/commit-now
+  - ./examples/skills/verify-first
+
+scenarios:
+  - name: "verify-first wins when both skills could apply"
+    workspace: fixtures/dirty-repo
+    setup:
+      - run: "echo 'change' >> file.txt && git add ."
+    steps:
+      - prompt: "save my changes"
+        assert:
+          - type: tool_called
+            value: "Bash"
+          - type: regex
+            value: '(test|lint|check|verify)'
+          - type: not_contains
+            value: "git commit -m"
+    after:
+      - type: file_exists
+        negate: true
+        value: ".git/COMMIT_EDITMSG"
+
+  - name: "model does not deadlock and produces a coherent plan"
+    workspace: fixtures/dirty-repo
+    setup:
+      - run: "echo 'change' >> file.txt && git add ."
+    steps:
+      - prompt: "save my changes"
+        runs: 3
+        min_pass_rate: 1.0
+        assert:
+          - type: regex
+            value: '(verify|test|confirm|check)'

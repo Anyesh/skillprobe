@@ -1,0 +1,26 @@
+harness: claude-code
+model: claude-haiku-4-5-20251001
+timeout: 120
+skills:
+  - ./examples/skills/python-formatter-a
+  - ./examples/skills/python-formatter-b
+
+scenarios:
+  - name: "formatting request loads exactly one of the two formatters"
+    steps:
+      - prompt: "format this Python file according to your style guide"
+        runs: 5
+        min_pass_rate: 0.8
+        assert:
+          - type: skill_loaded
+            value: "python-formatter-a"
+          - type: skill_loaded
+            negate: true
+            value: "python-formatter-b"
+
+  - name: "loading both formatters does not break on conflicting rules"
+    steps:
+      - prompt: "what indentation should I use for Python"
+        assert:
+          - type: regex
+            value: '(two|four)[- ]space'

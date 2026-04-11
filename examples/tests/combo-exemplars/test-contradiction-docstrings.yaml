@@ -1,0 +1,27 @@
+harness: claude-code
+model: claude-haiku-4-5-20251001
+timeout: 120
+skills:
+  - ./examples/skills/clean-code
+  - ./examples/skills/bad-python
+
+scenarios:
+  - name: "contradicting guidance on docstrings surfaces one rule clearly"
+    steps:
+      - prompt: "Write a Python function called add that takes two integers and returns their sum"
+        runs: 5
+        min_pass_rate: 0.8
+        assert:
+          - type: regex
+            value: 'def add\([^)]*: *int[^)]*: *int[^)]*\) *-> *int'
+          - type: not_contains
+            value: '"""'
+
+  - name: "model explicitly picks a rule rather than straddling"
+    steps:
+      - prompt: "Write a small utility function to parse a date string. Explain briefly why you chose the style you did."
+        runs: 5
+        min_pass_rate: 0.6
+        assert:
+          - type: regex
+            value: '(docstring|type hint|clean-code|bad-python)'

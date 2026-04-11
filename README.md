@@ -155,6 +155,22 @@ The single-skill `skill:` field still works unchanged for existing test files. U
 
 See `examples/tests/test-combo-sample.yaml` for a runnable example.
 
+### Measuring variance
+
+Skills on modern models are probabilistic. Before setting `min_pass_rate` on a scenario, measure its natural variance:
+
+```bash
+skillprobe measure examples/tests/test-combo-sample.yaml --runs 20
+```
+
+Output is a per-assertion pass rate, 95% Wilson confidence interval, and a variance classification (`deterministic`, `probabilistic`, `noisy`, `unreliable`). Use this to pick a threshold grounded in real numbers instead of guessing.
+
+### Caching runs
+
+Repeated runs of the same scenario against the same skill files, model, and harness read from a local cache at `~/.cache/skillprobe/runs/` (or `$XDG_CACHE_HOME/skillprobe/runs/`). The cache is keyed by the SHA256 of skill file contents, prompt, model, harness, and skillprobe version, so any change invalidates the entry automatically. TTL is 24 hours by default, configurable via `SKILLPROBE_CACHE_TTL_HOURS`.
+
+Disable caching entirely with `--no-cache` or `SKILLPROBE_NO_CACHE=1`. Bypass reads but keep writes with `--force-refresh`. Override the cache directory with `--cache-dir /some/other/path` for testing or isolation.
+
 ## Commands
 
 **`skillprobe run <test.yaml>`** runs test scenarios against a real coding tool.

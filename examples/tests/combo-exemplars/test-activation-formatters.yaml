@@ -1,3 +1,9 @@
+# Note: this exemplar uses `type: skill_loaded`, which is not yet implemented
+# in skillprobe's assertion engine as of Phase 1. It will become executable
+# once the skill_loaded assertion type is added in a later phase. Do not copy
+# the skill_loaded lines into an executable test today; they will silently
+# produce no signal because the harness adapter does not advertise support
+# for that assertion type.
 harness: claude-code
 model: claude-haiku-4-5-20251001
 timeout: 120

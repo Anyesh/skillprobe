@@ -28,10 +28,16 @@ class WorkspaceManager:
             workspace.mkdir(parents=True)
 
         if skills:
+            missing = [skill for skill in skills if not skill.exists()]
+            if missing:
+                listed = "\n  ".join(str(p) for p in missing)
+                raise FileNotFoundError(
+                    f"skill path(s) do not exist on disk; check the "
+                    f"'skill:' or 'skills:' field in your scenario YAML:\n  "
+                    f"{listed}"
+                )
             skill_base = SKILL_PATHS.get(harness, SKILL_PATHS["claude-code"])
             for skill in skills:
-                if not skill.exists():
-                    continue
                 if skill.is_dir():
                     target = workspace / skill_base / skill.name
                     shutil.copytree(skill, target)

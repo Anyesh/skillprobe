@@ -102,6 +102,27 @@ class TestCreate:
         ws = manager.create(fixture=fixture_dir, skills=[], harness="claude-code")
         assert not (ws / ".claude" / "skills").exists()
 
+    def test_missing_skill_path_raises(self, manager, fixture_dir, tmp_path):
+        missing = tmp_path / "does-not-exist"
+        with pytest.raises(FileNotFoundError, match="do not exist on disk"):
+            manager.create(fixture=fixture_dir, skills=[missing], harness="claude-code")
+
+    def test_missing_skill_path_lists_all_missing(self, manager, fixture_dir, tmp_path):
+        missing_a = tmp_path / "missing-a"
+        missing_b = tmp_path / "missing-b"
+        try:
+            manager.create(
+                fixture=fixture_dir,
+                skills=[missing_a, missing_b],
+                harness="claude-code",
+            )
+        except FileNotFoundError as exc:
+            msg = str(exc)
+            assert "missing-a" in msg
+            assert "missing-b" in msg
+        else:
+            raise AssertionError("expected FileNotFoundError")
+
 
 class TestSetup:
     def test_runs_setup_commands(self, manager, fixture_dir):

@@ -2,8 +2,10 @@ import asyncio
 import time
 from pathlib import Path
 
+from skillprobe import __version__ as _SKILLPROBE_VERSION
 from skillprobe.adapters.base import HarnessAdapter, HarnessConfig
 from skillprobe.assertions import check_harness_assertion
+from skillprobe.cache import RunCache, compute_cache_key
 from skillprobe.evidence import StepEvidence
 from skillprobe.loader import Scenario, ScenarioSuite
 from skillprobe.reporter import ScenarioResult, StepResult
@@ -11,10 +13,45 @@ from skillprobe.workspace import WorkspaceManager
 
 
 class ScenarioOrchestrator:
-    def __init__(self, adapter: HarnessAdapter, config: HarnessConfig, work_dir: Path):
+    def __init__(
+        self,
+        adapter: HarnessAdapter,
+        config: HarnessConfig,
+        work_dir: Path,
+        cache: RunCache | None = None,
+    ):
         self._adapter = adapter
         self._config = config
         self._workspace_mgr = WorkspaceManager(work_dir)
+        self._cache = cache
+
+    async def _send_prompt_cached(
+        self,
+        prompt: str,
+        workspace: Path,
+        session_id: str | None,
+        skills: list[str],
+    ) -> tuple[StepEvidence, bool]:
+        if self._cache is None:
+            evidence = await self._adapter.send_prompt(prompt, workspace, session_id)
+            return evidence, False
+
+        skill_paths = [Path(s) for s in skills]
+        key = compute_cache_key(
+            skills=skill_paths,
+            prompt=prompt,
+            model=self._config.model,
+            harness=self._config.harness,
+            version=_SKILLPROBE_VERSION,
+        )
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached, True
+
+        evidence = await self._adapter.send_prompt(prompt, workspace, session_id)
+        if not evidence.is_error:
+            self._cache.put(key, evidence)
+        return evidence, False
 
     async def run(self, suite: ScenarioSuite) -> list[ScenarioResult]:
         self._adapter.start(self._config)
@@ -57,6 +94,7 @@ class ScenarioOrchestrator:
                         workspace,
                         session_id,
                         step_costs,
+                        skills,
                     )
                     if not step_result.meets_threshold:
                         all_passed = False
@@ -64,8 +102,8 @@ class ScenarioOrchestrator:
                     continue
 
                 try:
-                    evidence = await self._adapter.send_prompt(
-                        step.prompt, workspace, session_id
+                    evidence, _cache_hit = await self._send_prompt_cached(
+                        step.prompt, workspace, session_id, skills
                     )
                 except Exception as e:
                     duration_ms = (time.monotonic() - start) * 1000
@@ -154,6 +192,7 @@ class ScenarioOrchestrator:
         workspace: Path,
         session_id: str | None,
         step_costs: list[float],
+        skills: list[str],
     ) -> StepResult:
         from skillprobe.loader import ScenarioStep
 
@@ -164,8 +203,8 @@ class ScenarioOrchestrator:
 
         for _ in range(step.runs):
             try:
-                evidence = await self._adapter.send_prompt(
-                    step.prompt, workspace, session_id
+                evidence, _cache_hit = await self._send_prompt_cached(
+                    step.prompt, workspace, session_id, skills
                 )
             except Exception:
                 continue

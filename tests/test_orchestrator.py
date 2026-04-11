@@ -448,3 +448,52 @@ class TestOrchestrator:
         sk_a_present, sk_b_present = skill_files_seen[0]
         assert sk_a_present
         assert sk_b_present
+
+    @pytest.mark.asyncio
+    async def test_cache_hit_skips_adapter_call(self, tmp_path):
+        call_count = {"n": 0}
+
+        class CountingAdapter(FakeAdapter):
+            async def send_prompt(self, prompt, workspace, session_id):
+                call_count["n"] += 1
+                return await FakeAdapter.send_prompt(
+                    self, prompt, workspace, session_id
+                )
+
+        from skillprobe.cache import RunCache
+
+        adapter = CountingAdapter(["committed response"])
+        config = HarnessConfig(harness="claude-code", model="m")
+        cache = RunCache(cache_dir=tmp_path / "cache", ttl_hours=24)
+        suite = make_suite(
+            [
+                Scenario(
+                    name="cache test",
+                    workspace=None,
+                    setup=[],
+                    steps=[
+                        ScenarioStep(
+                            prompt="commit",
+                            assertions=[{"type": "contains", "value": "committed"}],
+                        ),
+                    ],
+                    after=[],
+                    timeout=None,
+                ),
+            ]
+        )
+        orchestrator = ScenarioOrchestrator(
+            adapter=adapter,
+            config=config,
+            work_dir=tmp_path / "work",
+            cache=cache,
+        )
+        results1 = await orchestrator.run(suite)
+        assert results1[0].passed is True
+        assert call_count["n"] == 1
+
+        results2 = await orchestrator.run(suite)
+        assert results2[0].passed is True
+        assert call_count["n"] == 1, (
+            "second run should have hit the cache and not called adapter"
+        )

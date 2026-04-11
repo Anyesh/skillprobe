@@ -63,6 +63,13 @@ def run(
     click.echo(f"  Model: {resolved_model or 'default'}")
     click.echo(f"  Scenarios: {len(suite.scenarios)}")
     click.echo(f"  Parallel: {parallel}")
+    if suite.skills:
+        if len(suite.skills) == 1:
+            click.echo(f"  Skill: {suite.skills[0]}")
+        else:
+            click.echo(f"  Skills: {len(suite.skills)} loaded")
+            for s in suite.skills:
+                click.echo(f"    - {s}")
     click.echo()
 
     orchestrator = ScenarioOrchestrator(

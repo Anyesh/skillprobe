@@ -32,6 +32,13 @@ class ScenarioSuite:
     scenarios: list[Scenario]
 
 
+def _target_dir_name(skill_path: str) -> str:
+    name = Path(skill_path).name
+    if name.endswith(".md"):
+        return name[:-3]
+    return name
+
+
 def load_scenario_suite(path: Path) -> ScenarioSuite:
     if not path.exists():
         raise FileNotFoundError(f"Scenario suite not found: {path}")
@@ -52,6 +59,18 @@ def load_scenario_suite(path: Path) -> ScenarioSuite:
         skills = [str(skill_single)]
     else:
         skills = []
+
+    seen: dict[str, list[str]] = {}
+    for s in skills:
+        seen.setdefault(_target_dir_name(s), []).append(s)
+    collisions = {k: v for k, v in seen.items() if len(v) > 1}
+    if collisions:
+        lines = [
+            f"{path}: skill name collision; multiple skills would map to the same workspace directory:"
+        ]
+        for target, sources in collisions.items():
+            lines.append(f"  {target}: {', '.join(sources)}")
+        raise ValueError("\n".join(lines))
 
     scenarios = []
     for s in data.get("scenarios", []):

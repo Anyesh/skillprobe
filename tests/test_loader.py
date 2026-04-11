@@ -217,3 +217,39 @@ scenarios:
         f.write_text(content)
         with pytest.raises(ValueError, match="'skills' must be a list"):
             load_scenario_suite(f)
+
+    def test_skill_name_collision_raises(self, tmp_path):
+        content = """
+skills:
+  - ./first/commit
+  - ./second/commit
+scenarios:
+  - name: "bad"
+    steps:
+      - prompt: "go"
+        assert:
+          - type: contains
+            value: "ok"
+"""
+        f = tmp_path / "collide.yaml"
+        f.write_text(content)
+        with pytest.raises(ValueError, match="collision"):
+            load_scenario_suite(f)
+
+    def test_skill_name_collision_dir_vs_md_file_raises(self, tmp_path):
+        content = """
+skills:
+  - ./skills/commit
+  - ./other/commit.md
+scenarios:
+  - name: "bad"
+    steps:
+      - prompt: "go"
+        assert:
+          - type: contains
+            value: "ok"
+"""
+        f = tmp_path / "collide.yaml"
+        f.write_text(content)
+        with pytest.raises(ValueError, match="collision"):
+            load_scenario_suite(f)

@@ -203,3 +203,11 @@ class TestRunCache:
         assert got.tool_calls[0].arguments == {"command": "ls"}
         assert got.tool_calls[1].tool_name == "Skill"
         assert got.tool_calls[1].arguments == {"skill": "commit"}
+
+    def test_corrupt_utf8_entry_returns_none(self, tmp_path):
+        cache = RunCache(cache_dir=tmp_path / "cache", ttl_hours=24)
+        key = "g" * 64
+        path = cache._path_for(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"\xff\xfe not valid utf-8")
+        assert cache.get(key) is None

@@ -61,7 +61,7 @@ class RunCache:
         try:
             with open(path, encoding="utf-8") as f:
                 entry = json.load(f)
-        except (OSError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
             return None
         stored_at = entry.get("stored_at", 0)
         if self._ttl_seconds <= 0 or time.time() - stored_at > self._ttl_seconds:

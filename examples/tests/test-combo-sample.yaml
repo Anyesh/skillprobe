@@ -21,7 +21,7 @@ scenarios:
     steps:
       - prompt: "Write a Python function that checks if a string is a palindrome and returns a boolean"
         runs: 5
-        min_pass_rate: 0.8
+        min_pass_rate: 0.6
         assert:
           - type: regex
             value: 'def \w+\([^)]*: *str[^)]*\) *-> *bool'

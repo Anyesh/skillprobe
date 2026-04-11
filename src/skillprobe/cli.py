@@ -18,10 +18,34 @@ from skillprobe.cache import (
     default_cache_dir,
     ttl_hours_from_env,
 )
-from skillprobe.loader import load_scenario_suite
+from skillprobe.loader import ScenarioSuite, load_scenario_suite
 from skillprobe.measure import format_variance_report, measure_suite
 from skillprobe.orchestrator import ScenarioOrchestrator
 from skillprobe.reporter import format_harness_results
+
+
+def _expand_matrix(suite: ScenarioSuite) -> list[tuple[str, ScenarioSuite]]:
+    if suite.matrix is None:
+        return [("", suite)]
+
+    expanded: list[tuple[str, ScenarioSuite]] = []
+    for pair in suite.matrix.pair_with:
+        skills = [suite.matrix.base, pair]
+        label = f"{Path(suite.matrix.base).name} + {Path(pair).name}"
+        expanded.append(
+            (
+                label,
+                ScenarioSuite(
+                    harness=suite.harness,
+                    model=suite.model,
+                    timeout=suite.timeout,
+                    skills=skills,
+                    scenarios=suite.scenarios,
+                    matrix=None,
+                ),
+            )
+        )
+    return expanded
 
 
 @click.group()
@@ -141,10 +165,23 @@ def run(
         work_dir=Path(tempfile.gettempdir()) / "skillprobe-workspaces",
         cache=cache,
     )
-    results = asyncio.run(orchestrator.run(suite))
-    click.echo(format_harness_results(results))
+    expanded_suites = _expand_matrix(suite)
 
-    any_failed = any(not r.passed for r in results)
+    any_failed = False
+
+    for label, sub_suite in expanded_suites:
+        if label:
+            click.echo(f"  Matrix pairing: {label}")
+            for s in sub_suite.skills:
+                click.echo(f"    - {s}")
+            click.echo()
+
+        results = asyncio.run(orchestrator.run(sub_suite))
+        click.echo(format_harness_results(results))
+        if any(not r.passed for r in results):
+            any_failed = True
+        click.echo()
+
     raise SystemExit(1 if any_failed else 0)
 
 

@@ -53,7 +53,25 @@ activation:
     - "another unrelated prompt"
 ```
 
-The `activation` key replaces `scenarios`. These are two different file formats. Do not mix them.
+The `activation` key replaces `scenarios`. These are two different file formats loaded by different commands (`skillprobe run` vs `skillprobe activation`). Never put both keys in the same file. skillprobe will either ignore one silently or fail to parse the file.
+
+Bad:
+```yaml
+skill: ./skills/commit
+activation:
+  skill_name: commit
+  should_activate:
+    - "commit my changes"
+scenarios:
+  - name: "commit happens"
+    steps:
+      - prompt: "commit"
+        assert:
+          - type: contains
+            value: "commit"
+```
+
+Pick one format per file.
 
 ## Assertion Types
 
@@ -83,6 +101,16 @@ steps:
         value: "-> "
 ```
 
+## Pass rate thresholds
+
+`min_pass_rate: 0.0` is never correct. A zero threshold means the scenario passes no matter what the model does, which makes the assertion vacuous. Use these defaults:
+
+- **Deterministic rule** (the skill either followed the rule or it didn't, no ambiguity expected): `min_pass_rate: 1.0`
+- **Probabilistic rule** (model variance expected, most runs should follow the rule): `min_pass_rate: 0.8`
+- **Genuinely uncertain contest** (two competing rules, either could win on any run): `min_pass_rate: 0.5`
+
+If you cannot justify a `min_pass_rate` of at least 0.5, the scenario is probably testing the wrong thing.
+
 ## Writing Good Domain Skill Tests
 
 Domain skills teach project-specific knowledge. Test for YOUR specifics, not generic behavior.
@@ -95,6 +123,54 @@ For every domain skill, cover:
 2. **Specific details**: URLs, config values, architecture names from the skill
 3. **Negative cases**: tools or patterns your project doesnt use
 4. **Activation**: prompts from the skill's trigger words, plus unrelated prompts that should not trigger it
+
+## Strong vs weak assertions
+
+An assertion is only useful if it discriminates between "skill was followed" and "skill was not followed." An assertion that would pass regardless of model behavior is noise.
+
+**Weak** (passes for any relevant response, no signal):
+- `contains: "import"` — any Python code mentions imports
+- `regex: "result ="` — any variable assignment passes
+- `contains: "function"` — any explanation mentions functions
+
+**Strong** (only passes when the specific rule was followed):
+- `regex: "^from [a-z]+ import [a-z]"` for "use from-imports in alphabetical order"
+- `regex: "def \\w+\\([^)]*: *int[^)]*\\) *-> *int"` for "must use int type hints on params and return"
+- `not_contains: '\"\"\"'` for "no docstrings on small helpers"
+
+Before writing an assertion, ask: "what response would this assertion accept that should not be accepted?" If the answer is "any reasonable response," the assertion is too weak.
+
+## Avoid contradictory scenarios
+
+Each scenario should have exactly one clear expected outcome. Two scenarios with the same prompt asserting opposite outcomes cannot both pass, so the suite produces no signal about which rule the skill should enforce. If you are probing a contest between two behaviors, use ONE scenario with a probabilistic `min_pass_rate`, not two scenarios with mutually exclusive assertions.
+
+Bad:
+```yaml
+- name: "uses type hints"
+  steps:
+    - prompt: "write a function that adds two numbers"
+      assert:
+        - type: regex
+          value: "-> int"
+- name: "no type hints"
+  steps:
+    - prompt: "write a function that adds two numbers"
+      assert:
+        - type: not_contains
+          value: "-> "
+```
+
+Good:
+```yaml
+- name: "uses int type hints at least 80% of the time"
+  steps:
+    - prompt: "write a function that adds two numbers"
+      runs: 5
+      min_pass_rate: 0.8
+      assert:
+        - type: regex
+          value: "-> int"
+```
 
 ## Running
 

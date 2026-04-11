@@ -26,12 +26,19 @@ class Scenario:
 
 
 @dataclass
+class MatrixConfig:
+    base: str
+    pair_with: list[str]
+
+
+@dataclass
 class ScenarioSuite:
     harness: str
     model: str | None
     timeout: int
     skills: list[str]
     scenarios: list[Scenario]
+    matrix: MatrixConfig | None = None
 
 
 def _target_dir_name(skill_path: str) -> str:
@@ -98,6 +105,29 @@ def load_scenario_suite(path: Path) -> ScenarioSuite:
     else:
         skills = []
 
+    matrix_raw = data.get("matrix")
+    matrix: MatrixConfig | None = None
+    if matrix_raw is not None:
+        if not isinstance(matrix_raw, dict):
+            raise ValueError(f"{path}: 'matrix' must be a mapping")
+        if skills_raw is not None or skill_single is not None:
+            raise ValueError(
+                f"{path}: cannot specify both 'skills' and 'matrix' at suite level; "
+                f"pick one"
+            )
+        base_raw = matrix_raw.get("base")
+        if not isinstance(base_raw, str):
+            raise ValueError(f"{path}: 'matrix.base' must be a string path")
+        pair_with_raw = matrix_raw.get("pair_with")
+        if not isinstance(pair_with_raw, list) or not pair_with_raw:
+            raise ValueError(
+                f"{path}: 'matrix.pair_with' must be a non-empty list of paths"
+            )
+        matrix = MatrixConfig(
+            base=base_raw,
+            pair_with=[str(p) for p in pair_with_raw],
+        )
+
     seen: dict[str, list[str]] = {}
     for s in skills:
         seen.setdefault(_target_dir_name(s), []).append(s)
@@ -145,4 +175,5 @@ def load_scenario_suite(path: Path) -> ScenarioSuite:
         timeout=data.get("timeout", 120),
         skills=skills,
         scenarios=scenarios,
+        matrix=matrix,
     )

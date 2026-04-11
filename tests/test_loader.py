@@ -311,3 +311,101 @@ skill: ./skills/commit
         f.write_text(content)
         with pytest.raises(ValueError, match="missing a 'scenarios:' block"):
             load_scenario_suite(f)
+
+    def test_parses_matrix_block(self, tmp_path):
+        content = """
+harness: claude-code
+matrix:
+  base: ./skills/commit
+  pair_with:
+    - ./skills/verify
+    - ./skills/lint
+scenarios:
+  - name: "commit"
+    steps:
+      - prompt: "go"
+        assert:
+          - type: contains
+            value: "ok"
+"""
+        f = tmp_path / "matrix.yaml"
+        f.write_text(content)
+        suite = load_scenario_suite(f)
+        assert suite.matrix is not None
+        assert suite.matrix.base == "./skills/commit"
+        assert suite.matrix.pair_with == ["./skills/verify", "./skills/lint"]
+
+    def test_matrix_requires_base(self, tmp_path):
+        content = """
+matrix:
+  pair_with:
+    - ./skills/verify
+scenarios:
+  - name: "bad"
+    steps:
+      - prompt: "go"
+        assert:
+          - type: contains
+            value: "ok"
+"""
+        f = tmp_path / "bad.yaml"
+        f.write_text(content)
+        with pytest.raises(ValueError, match="matrix.base"):
+            load_scenario_suite(f)
+
+    def test_matrix_requires_pair_with_list(self, tmp_path):
+        content = """
+matrix:
+  base: ./skills/commit
+  pair_with: not-a-list
+scenarios:
+  - name: "bad"
+    steps:
+      - prompt: "go"
+        assert:
+          - type: contains
+            value: "ok"
+"""
+        f = tmp_path / "bad.yaml"
+        f.write_text(content)
+        with pytest.raises(ValueError, match="matrix.pair_with"):
+            load_scenario_suite(f)
+
+    def test_matrix_and_skills_conflict(self, tmp_path):
+        content = """
+skills:
+  - ./skills/a
+matrix:
+  base: ./skills/commit
+  pair_with:
+    - ./skills/verify
+scenarios:
+  - name: "bad"
+    steps:
+      - prompt: "go"
+        assert:
+          - type: contains
+            value: "ok"
+"""
+        f = tmp_path / "bad.yaml"
+        f.write_text(content)
+        with pytest.raises(
+            ValueError, match="cannot specify both 'skills' and 'matrix'"
+        ):
+            load_scenario_suite(f)
+
+    def test_absent_matrix_is_none(self, tmp_path):
+        content = """
+skill: ./skills/one
+scenarios:
+  - name: "ok"
+    steps:
+      - prompt: "go"
+        assert:
+          - type: contains
+            value: "ok"
+"""
+        f = tmp_path / "nomatrix.yaml"
+        f.write_text(content)
+        suite = load_scenario_suite(f)
+        assert suite.matrix is None

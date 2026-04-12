@@ -1,5 +1,12 @@
 # skillprobe
 
+[![PyPI version](https://img.shields.io/pypi/v/skillprobe.svg)](https://pypi.org/project/skillprobe/)
+[![Python versions](https://img.shields.io/pypi/pyversions/skillprobe.svg)](https://pypi.org/project/skillprobe/)
+[![Tests](https://img.shields.io/github/actions/workflow/status/Anyesh/skillprobe/test.yml?branch=main&label=tests)](https://github.com/Anyesh/skillprobe/actions/workflows/test.yml)
+[![License](https://img.shields.io/pypi/l/skillprobe.svg)](https://github.com/Anyesh/skillprobe/blob/main/LICENSE)
+
+Release notes: see [CHANGELOG.md](CHANGELOG.md) or the [GitHub Releases page](https://github.com/Anyesh/skillprobe/releases).
+
 ![skillprobe demo](demo/skillprobe-demo.gif)
 
 Automated testing for LLM skills. Launches Claude Code or Cursor as subprocesses, runs scenarios in isolated workspaces, and reports what passed and what didn't.
